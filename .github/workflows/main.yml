@@ -3,7 +3,6 @@ name: Regulatory Automation Scraper
 on:
   schedule:
     - cron: '0 0,6,12,18 * * *'
-
   workflow_dispatch:
 
 jobs:
@@ -12,16 +11,15 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: '20'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run scraper
         env:
@@ -37,15 +35,4 @@ jobs:
           name: scraper-logs-${{ github.run_id }}
           path: logs/
           retention-days: 30
-
-      - name: Notify on failure
-        if: failure()
-        uses: actions/github-script@v6
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '❌ Regulatory automation scraper failed. Check workflow logs.'
-            })
+          if-no-files-found: ignore
