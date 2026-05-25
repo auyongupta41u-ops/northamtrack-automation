@@ -1,0 +1,42 @@
+name: Regulatory Automation Scraper v2
+
+on:
+  schedule:
+    # Every 6 hours: 12am, 6am, 12pm, 6pm UTC
+    - cron: '0 0,6,12,18 * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    name: Regulatory Automation Scraper
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: |
+          npm install axios xml2js dotenv @supabase/supabase-js
+      
+      - name: Run scraper (Mock Version)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_number }}
+        run: node scraper-mock.js
+      
+      - name: Check result
+        if: success()
+        run: echo "✅ Scraper completed successfully"
+      
+      - name: Report failure
+        if: failure()
+        run: echo "❌ Scraper failed - check logs above"
