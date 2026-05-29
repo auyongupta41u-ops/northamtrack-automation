@@ -31,7 +31,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           RUN_ID: ${{ github.run_id }}-${{ github.run_number }}
-        run: node scraper-simple-fixed.js
+        run: node scraper-working.js
       
       - name: Upload logs
         if: always()
