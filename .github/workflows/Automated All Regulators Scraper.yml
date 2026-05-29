@@ -36,7 +36,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-sec-osc
         run: |
           echo "🚀 Running SEC + OSC scraper..."
-          node scraper-standalone.js
+          node scraper-simple-fixed.js
           echo "✅ SEC + OSC completed"
       
       - name: Run BCSC (Manual)
