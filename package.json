@@ -1,0 +1,45 @@
+{
+  "name": "northamtrack-regulatory-automation",
+  "version": "2.0.0",
+  "description": "Production-grade regulatory automation system for NorthamTrack with Supabase backend",
+  "main": "scraper.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node scraper.js",
+    "dev": "nodemon scraper.js",
+    "test": "jest",
+    "lint": "eslint .",
+    "setup": "node setup.js"
+  },
+  "keywords": [
+    "regulatory",
+    "automation",
+    "scraper",
+    "supabase",
+    "sec",
+    "osc",
+    "csa",
+    "canada",
+    "usa"
+  ],
+  "author": "NorthamTrack",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.38.0",
+    "axios": "^1.6.0",
+    "cheerio": "^1.2.0",
+    "dotenv": "^16.3.1",
+    "puppeteer": "^25.0.4",
+    "rss-parser": "^3.13.0",
+    "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.50.0",
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
