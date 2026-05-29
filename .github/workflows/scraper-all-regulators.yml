@@ -1,0 +1,117 @@
+name: Automated All Regulators Scraper
+
+on:
+  schedule:
+    # Run every 6 hours (at 0, 6, 12, 18 UTC)
+    - cron: '0 0,6,12,18 * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  scrape-all:
+    name: Scrape All Regulators (SEC, OSC, BCSC, CSA, CIRO, AMF, ASC, FCAA)
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Create logs directory
+        run: mkdir -p logs
+      
+      - name: Run SEC + OSC (Automated)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-sec-osc
+        run: |
+          echo "🚀 Running SEC + OSC scraper..."
+          node scraper.js
+          echo "✅ SEC + OSC completed"
+      
+      - name: Run BCSC (Manual)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-bcsc
+        run: |
+          echo "🚀 Running BCSC scraper..."
+          node scraper-manual.js bcsc || echo "⚠️ BCSC scraper failed, continuing..."
+          echo "✅ BCSC completed"
+      
+      - name: Run CSA (Manual)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-csa
+        run: |
+          echo "🚀 Running CSA scraper..."
+          node scraper-manual.js csa || echo "⚠️ CSA scraper failed, continuing..."
+          echo "✅ CSA completed"
+      
+      - name: Run CIRO (Manual)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-ciro
+        run: |
+          echo "🚀 Running CIRO scraper..."
+          node scraper-manual.js ciro || echo "⚠️ CIRO scraper failed, continuing..."
+          echo "✅ CIRO completed"
+      
+      - name: Run AMF (Manual)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-amf
+        run: |
+          echo "🚀 Running AMF scraper..."
+          node scraper-manual.js amf || echo "⚠️ AMF scraper failed, continuing..."
+          echo "✅ AMF completed"
+      
+      - name: Run ASC (Manual)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-asc
+        run: |
+          echo "🚀 Running ASC scraper..."
+          node scraper-manual.js asc || echo "⚠️ ASC scraper failed, continuing..."
+          echo "✅ ASC completed"
+      
+      - name: Run FCAA (Manual)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-fcaa
+        run: |
+          echo "🚀 Running FCAA scraper..."
+          node scraper-manual.js fcaa || echo "⚠️ FCAA scraper failed, continuing..."
+          echo "✅ FCAA completed"
+      
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-regulators-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 30
+          if-no-files-found: ignore
+      
+      - name: Notify on success
+        if: success()
+        run: echo "✅ All regulators scraper completed successfully!"
+      
+      - name: Notify on failure
+        if: failure()
+        run: echo "⚠️ Some scrapers failed. Check logs above."
