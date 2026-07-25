@@ -1,51 +1,60 @@
-const axios = require("axios");
-const cheerio = require("cheerio");
+const puppeteer = require("puppeteer");
 
-const BASE_URL = "https://www.bcsc.bc.ca";
 const NEWS_URL =
   "https://www.bcsc.bc.ca/about/media-room/news-releases";
 
 async function scrapeBCSCLinks() {
-  try {
-    console.log("Downloading the BCSC news releases page...");
+  let browser;
 
-    const response = await axios.get(NEWS_URL, {
-      timeout: 30000,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; NorthAmTrack Regulatory Monitor/1.0)"
-      }
+  try {
+    console.log("Opening the BCSC news releases page in a browser...");
+
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
 
-    const $ = cheerio.load(response.data);
-    const releases = [];
-    const seenUrls = new Set();
+    const page = await browser.newPage();
 
-    $("a[href]").each((index, element) => {
-      const href = $(element).attr("href");
-      const title = $(element).text().replace(/\s+/g, " ").trim();
+    await page.setUserAgent(
+      "Mozilla/5.0 (compatible; NorthAmTrack Regulatory Monitor/1.0)"
+    );
 
-      if (!href || !title) {
-        return;
-      }
+    await page.goto(NEWS_URL, {
+      waitUntil: "networkidle2",
+      timeout: 60000
+    });
 
-      const absoluteUrl = new URL(href, BASE_URL).href;
+    await page.waitForFunction(
+      () =>
+        Array.from(document.querySelectorAll("a")).some((link) =>
+          link.href.includes("/about/media-room/news-releases/")
+        ),
+      { timeout: 30000 }
+    );
 
-      const isNewsRelease =
-        absoluteUrl.includes("/about/media-room/news-releases/") &&
-        absoluteUrl !== `${NEWS_URL}/` &&
-        absoluteUrl !== NEWS_URL;
+    const releases = await page.evaluate(() => {
+      const seenUrls = new Set();
 
-      if (!isNewsRelease || seenUrls.has(absoluteUrl)) {
-        return;
-      }
+      return Array.from(document.querySelectorAll("a[href]"))
+        .map((link) => ({
+          title: link.textContent.replace(/\s+/g, " ").trim(),
+          source_url: link.href
+        }))
+        .filter((release) => {
+          const isRelease =
+            release.title &&
+            release.source_url.includes(
+              "/about/media-room/news-releases/"
+            );
 
-      seenUrls.add(absoluteUrl);
+          if (!isRelease || seenUrls.has(release.source_url)) {
+            return false;
+          }
 
-      releases.push({
-        title,
-        source_url: absoluteUrl
-      });
+          seenUrls.add(release.source_url);
+          return true;
+        });
     });
 
     console.log(`Found ${releases.length} possible BCSC news releases.`);
@@ -56,21 +65,18 @@ async function scrapeBCSCLinks() {
     });
 
     if (releases.length === 0) {
-      console.error("No BCSC news-release links were found.");
-      process.exit(1);
+      throw new Error("No BCSC news-release links were found.");
     }
 
-    console.log("\nBCSC link extraction test completed.");
+    console.log("\nBCSC browser extraction test completed.");
   } catch (error) {
-    console.error("BCSC link extraction failed.");
-
-    if (error.response) {
-      console.error(`HTTP status: ${error.response.status}`);
-    } else {
-      console.error(error.message);
+    console.error("BCSC browser extraction failed.");
+    console.error(error.message);
+    process.exitCode = 1;
+  } finally {
+    if (browser) {
+      await browser.close();
     }
-
-    process.exit(1);
   }
 }
 
