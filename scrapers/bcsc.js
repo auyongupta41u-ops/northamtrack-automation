@@ -37,10 +37,42 @@ async function scrapeBCSCLinks() {
       const seenUrls = new Set();
 
       return Array.from(document.querySelectorAll("a[href]"))
-        .map((link) => ({
-          title: link.textContent.replace(/\s+/g, " ").trim(),
-          source_url: link.href
-        }))
+        .map((link) => {
+          const container =
+            link.closest("article") ||
+            link.closest("li") ||
+            link.closest("div");
+
+          const title = link.textContent
+            .replace(/\s+/g, " ")
+            .trim();
+
+          const dateElement =
+            container?.querySelector("time") ||
+            container?.querySelector(".date") ||
+            container?.querySelector("[class*='date']");
+
+          const summaryElement =
+            container?.querySelector("p") ||
+            container?.querySelector(".description") ||
+            container?.querySelector("[class*='description']");
+
+          return {
+            title,
+            source_url: link.href,
+            published_date:
+              dateElement?.getAttribute("datetime") ||
+              dateElement?.textContent
+                ?.replace(/\s+/g, " ")
+                .trim() ||
+              "",
+            summary_text:
+              summaryElement?.textContent
+                ?.replace(/\s+/g, " ")
+                .trim() ||
+              ""
+          };
+        })
         .filter((release) => {
           const isRelease =
             release.title &&
@@ -48,7 +80,10 @@ async function scrapeBCSCLinks() {
               "/about/media-room/news-releases/"
             );
 
-          if (!isRelease || seenUrls.has(release.source_url)) {
+          if (
+            !isRelease ||
+            seenUrls.has(release.source_url)
+          ) {
             return false;
           }
 
@@ -57,20 +92,32 @@ async function scrapeBCSCLinks() {
         });
     });
 
-    console.log(`Found ${releases.length} possible BCSC news releases.`);
+    console.log(
+      `Found ${releases.length} possible BCSC news releases.`
+    );
 
     releases.slice(0, 10).forEach((release, index) => {
       console.log(`\n${index + 1}. ${release.title}`);
-      console.log(`   ${release.source_url}`);
+      console.log(
+        `   Date: ${release.published_date || "Not found"}`
+      );
+      console.log(
+        `   Summary: ${release.summary_text || "Not found"}`
+      );
+      console.log(`   URL: ${release.source_url}`);
     });
 
     if (releases.length === 0) {
-      throw new Error("No BCSC news-release links were found.");
+      throw new Error(
+        "No BCSC news-release links were found."
+      );
     }
 
-    console.log("\nBCSC browser extraction test completed.");
+    console.log(
+      "\nBCSC date and summary extraction test completed."
+    );
   } catch (error) {
-    console.error("BCSC browser extraction failed.");
+    console.error("BCSC extraction failed.");
     console.error(error.message);
     process.exitCode = 1;
   } finally {
