@@ -32,9 +32,32 @@ function convertToISODate(value) {
     return null;
   }
 
-  const parsedDate = new Date(value);
+  const cleanedValue = String(value)
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const parsedDate = new Date(cleanedValue);
 
   if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  /*
+   * Reject dates that are more than one day in the future.
+   * This prevents implementation dates, consultation deadlines
+   * and event dates from being saved as publication dates.
+   */
+  const tomorrow = new Date();
+
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(23, 59, 59, 999);
+
+  if (parsedDate.getTime() > tomorrow.getTime()) {
+    console.warn(
+      `Rejected future publication date: ${cleanedValue}`
+    );
+
     return null;
   }
 
@@ -446,29 +469,7 @@ async function extractArticle(
     const fullText =
       candidateTexts[0] || "";
 
-    /*
-     * Prefer written dates inside article text.
-     */
-    if (fullText) {
-      const writtenDateMatch =
-        fullText.match(
-          /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b/i
-        );
-
-      const isoDateMatch =
-        fullText.match(
-          /\b(\d{4}-\d{2}-\d{2})\b/
-        );
-
-      if (writtenDateMatch) {
-        publishedDate =
-          writtenDateMatch[0];
-      } else if (isoDateMatch) {
-        publishedDate =
-          isoDateMatch[1];
-      }
-    }
-
+    
     return {
       title,
       published_date: publishedDate,
@@ -483,13 +484,32 @@ async function extractArticle(
   const fullText =
     cleanText(extracted.full_text);
 
-  const publishedDate =
-    convertToISODate(
-      extracted.published_date
-    ) ||
-    convertToISODate(
-      release.listing_date
-    );
+ const articlePublishedDate =
+  convertToISODate(
+    extracted.published_date
+  );
+
+const listingPublishedDate =
+  convertToISODate(
+    release.listing_date
+  );
+
+const publishedDate =
+  articlePublishedDate ||
+  listingPublishedDate ||
+  new Date().toISOString();
+
+if (!articlePublishedDate && listingPublishedDate) {
+  console.log(
+    "Using the date extracted from the CSA news listing."
+  );
+}
+
+if (!articlePublishedDate && !listingPublishedDate) {
+  console.warn(
+    "No valid publication date was found. Using the scraper run date."
+  );
+}
 
   console.log(
     `Extracted ${fullText.length} characters.`
