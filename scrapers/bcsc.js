@@ -435,7 +435,11 @@ async function extractArticle(
 
     const fullText = candidateTexts[0] || "";
 
-if (!publishedDate && fullText) {
+/*
+ * Prefer the clear date written inside the article text.
+ * This avoids incorrect values from broad CSS selectors.
+ */
+if (fullText) {
   const isoDateMatch = fullText.match(
     /\bDate\s*:\s*(\d{4}-\d{2}-\d{2})\b/i
   );
