@@ -433,11 +433,29 @@ async function extractArticle(
         second.length - first.length
     );
 
-    return {
-      title,
-      published_date: publishedDate,
-      full_text: candidateTexts[0] || ""
-    };
+    const fullText = candidateTexts[0] || "";
+
+if (!publishedDate && fullText) {
+  const isoDateMatch = fullText.match(
+    /\bDate\s*:\s*(\d{4}-\d{2}-\d{2})\b/i
+  );
+
+  const writtenDateMatch = fullText.match(
+    /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b/i
+  );
+
+  if (isoDateMatch) {
+    publishedDate = isoDateMatch[1];
+  } else if (writtenDateMatch) {
+    publishedDate = writtenDateMatch[0];
+  }
+}
+
+return {
+  title,
+  published_date: publishedDate,
+  full_text: fullText
+};
   });
 
   const title =
