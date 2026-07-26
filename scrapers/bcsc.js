@@ -4,172 +4,506 @@ const {
   upsertRegulatoryUpdates
 } = require("../services/database");
 
+const {
+  generateEnhancedSummary
+} = require("../summarizer-enhanced");
+
 const NEWS_URL =
   "https://www.bcsc.bc.ca/about/media-room/news-releases";
 
-async function scrapeBCSCLinks() {
+const MAX_ARTICLES = 10;
+
+/**
+ * Clean extracted webpage text.
+ */
+function cleanText(value = "") {
+  return String(value)
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Convert a date value into ISO format.
+ * Returns null when the date cannot be parsed.
+ */
+function convertToISODate(value) {
+  if (!value) {
+    return null;
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate.toISOString();
+}
+
+/**
+ * Determine a basic category from the article title.
+ */
+function determineCategory(title = "") {
+  const lowerTitle = title.toLowerCase();
+
+  if (
+    lowerTitle.includes("alleges") ||
+    lowerTitle.includes("sanction") ||
+    lowerTitle.includes("penalty") ||
+    lowerTitle.includes("fraud") ||
+    lowerTitle.includes("charged") ||
+    lowerTitle.includes("enforcement")
+  ) {
+    return "enforcement_order";
+  }
+
+  if (
+    lowerTitle.includes("proposal") ||
+    lowerTitle.includes("consultation") ||
+    lowerTitle.includes("amendment") ||
+    lowerTitle.includes("notice") ||
+    lowerTitle.includes("rule")
+  ) {
+    return "regulatory_notice";
+  }
+
+  return "news";
+}
+
+/**
+ * Assign a basic initial impact rating.
+ */
+function determineImpactRating(title = "") {
+  const lowerTitle = title.toLowerCase();
+
+  if (
+    lowerTitle.includes("fraud") ||
+    lowerTitle.includes("penalty") ||
+    lowerTitle.includes("sanction") ||
+    lowerTitle.includes("charged") ||
+    lowerTitle.includes("alleges")
+  ) {
+    return "MEDIUM";
+  }
+
+  if (
+    lowerTitle.includes("proposal") ||
+    lowerTitle.includes("amendment") ||
+    lowerTitle.includes("consultation") ||
+    lowerTitle.includes("rule")
+  ) {
+    return "MEDIUM";
+  }
+
+  return "LOW";
+}
+
+/**
+ * Assign a basic mutual-fund relevance score.
+ */
+function determineMutualFundRelevance(
+  title = "",
+  fullText = ""
+) {
+  const combinedText =
+    `${title} ${fullText}`.toLowerCase();
+
+  if (
+    combinedText.includes("mutual fund") ||
+    combinedText.includes("investment fund") ||
+    combinedText.includes("fund manager") ||
+    combinedText.includes("asset manager")
+  ) {
+    return 0.75;
+  }
+
+  if (
+    combinedText.includes("dealer") ||
+    combinedText.includes("securities") ||
+    combinedText.includes("issuer") ||
+    combinedText.includes("investment")
+  ) {
+    return 0.55;
+  }
+
+  return 0.45;
+}
+
+/**
+ * Collect unique BCSC news-release links from the listing page.
+ */
+async function collectReleaseLinks(page) {
+  console.log(
+    "Opening the BCSC news releases listing page..."
+  );
+
+  await page.goto(NEWS_URL, {
+    waitUntil: "networkidle2",
+    timeout: 60000
+  });
+
+  await page.waitForFunction(
+    () =>
+      Array.from(
+        document.querySelectorAll("a[href]")
+      ).some((link) =>
+        link.href.includes(
+          "/about/media-room/news-releases/"
+        )
+      ),
+    {
+      timeout: 30000
+    }
+  );
+
+  const releases = await page.evaluate(() => {
+    const seenUrls = new Set();
+
+    return Array.from(
+      document.querySelectorAll("a[href]")
+    )
+      .map((link) => {
+        const container =
+          link.closest("article") ||
+          link.closest("li") ||
+          link.closest("div");
+
+        const dateElement =
+          container?.querySelector("time") ||
+          container?.querySelector(".date") ||
+          container?.querySelector(
+            '[class*="date"]'
+          );
+
+        return {
+          title: link.textContent
+            .replace(/\s+/g, " ")
+            .trim(),
+
+          source_url: link.href,
+
+          listing_date:
+            dateElement?.getAttribute(
+              "datetime"
+            ) ||
+            dateElement?.textContent
+              ?.replace(/\s+/g, " ")
+              .trim() ||
+            ""
+        };
+      })
+      .filter((release) => {
+        const listingUrl =
+          "https://www.bcsc.bc.ca/about/media-room/news-releases";
+
+        const normalizedUrl =
+          release.source_url.replace(/\/$/, "");
+
+        const isArticle =
+          release.title &&
+          release.source_url.includes(
+            "/about/media-room/news-releases/"
+          ) &&
+          normalizedUrl !== listingUrl;
+
+        if (
+          !isArticle ||
+          seenUrls.has(release.source_url)
+        ) {
+          return false;
+        }
+
+        seenUrls.add(release.source_url);
+        return true;
+      });
+  });
+
+  console.log(
+    `Found ${releases.length} possible BCSC news releases.`
+  );
+
+  return releases.slice(0, MAX_ARTICLES);
+}
+
+/**
+ * Open one article and extract its title, date and body.
+ */
+async function extractArticle(
+  articlePage,
+  release
+) {
+  console.log(
+    `\nOpening article: ${release.title}`
+  );
+
+  await articlePage.goto(release.source_url, {
+    waitUntil: "domcontentloaded",
+    timeout: 60000
+  });
+
+  try {
+    await articlePage.waitForSelector(
+      "h1, article, main",
+      {
+        timeout: 20000
+      }
+    );
+  } catch (error) {
+    console.warn(
+      "Main article selector was not detected. Attempting fallback extraction."
+    );
+  }
+
+  const extracted = await articlePage.evaluate(() => {
+    function normalize(value = "") {
+      return String(value)
+        .replace(/\u00a0/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    const title =
+      normalize(
+        document.querySelector("h1")
+          ?.textContent
+      ) ||
+      normalize(document.title);
+
+    /*
+     * Try several common date locations.
+     */
+    const dateElement =
+      document.querySelector(
+        'meta[property="article:published_time"]'
+      ) ||
+      document.querySelector(
+        'meta[name="date"]'
+      ) ||
+      document.querySelector(
+        'meta[name="publication_date"]'
+      ) ||
+      document.querySelector("time") ||
+      document.querySelector(".date") ||
+      document.querySelector(
+        '[class*="publish-date"]'
+      ) ||
+      document.querySelector(
+        '[class*="publication-date"]'
+      ) ||
+      document.querySelector(
+        '[class*="date"]'
+      );
+
+    let publishedDate = "";
+
+    if (dateElement) {
+      publishedDate =
+        dateElement.getAttribute("content") ||
+        dateElement.getAttribute("datetime") ||
+        normalize(dateElement.textContent);
+    }
+
+    /*
+     * Try to obtain a date from structured JSON-LD data.
+     */
+    if (!publishedDate) {
+      const jsonLdScripts =
+        Array.from(
+          document.querySelectorAll(
+            'script[type="application/ld+json"]'
+          )
+        );
+
+      for (const script of jsonLdScripts) {
+        try {
+          const parsed = JSON.parse(
+            script.textContent
+          );
+
+          const entries =
+            Array.isArray(parsed)
+              ? parsed
+              : [parsed];
+
+          for (const entry of entries) {
+            const candidate =
+              entry?.datePublished ||
+              entry?.dateCreated ||
+              entry?.dateModified;
+
+            if (candidate) {
+              publishedDate = candidate;
+              break;
+            }
+          }
+
+          if (publishedDate) {
+            break;
+          }
+        } catch (error) {
+          // Ignore invalid JSON-LD blocks.
+        }
+      }
+    }
+
+    /*
+     * Remove elements that commonly contaminate article text.
+     */
+    const removableSelectors = [
+      "script",
+      "style",
+      "nav",
+      "footer",
+      "header",
+      "aside",
+      "form",
+      "button",
+      ".breadcrumb",
+      ".breadcrumbs",
+      ".social-share",
+      ".share",
+      ".related-content",
+      ".navigation"
+    ];
+
+    document
+      .querySelectorAll(
+        removableSelectors.join(",")
+      )
+      .forEach((element) => {
+        element.remove();
+      });
+
+    /*
+     * Examine several possible article containers and
+     * retain the longest meaningful block.
+     */
+    const selectors = [
+      "article",
+      "main article",
+      ".news-release-content",
+      ".article-content",
+      ".page-content",
+      ".content-body",
+      ".rich-text",
+      ".main-content",
+      "main"
+    ];
+
+    const candidateTexts = [];
+
+    for (const selector of selectors) {
+      document
+        .querySelectorAll(selector)
+        .forEach((element) => {
+          const text = normalize(
+            element.innerText ||
+            element.textContent
+          );
+
+          if (text.length >= 200) {
+            candidateTexts.push(text);
+          }
+        });
+    }
+
+    /*
+     * Paragraph fallback if no article container worked.
+     */
+    const paragraphText =
+      Array.from(
+        document.querySelectorAll("p")
+      )
+        .map((paragraph) =>
+          normalize(paragraph.textContent)
+        )
+        .filter(
+          (paragraph) =>
+            paragraph.length >= 30
+        )
+        .join(" ");
+
+    if (paragraphText.length >= 200) {
+      candidateTexts.push(paragraphText);
+    }
+
+    candidateTexts.sort(
+      (first, second) =>
+        second.length - first.length
+    );
+
+    return {
+      title,
+      published_date: publishedDate,
+      full_text: candidateTexts[0] || ""
+    };
+  });
+
+  const title =
+    cleanText(extracted.title) ||
+    release.title;
+
+  const fullText =
+    cleanText(extracted.full_text);
+
+  const publishedDate =
+    convertToISODate(
+      extracted.published_date
+    ) ||
+    convertToISODate(
+      release.listing_date
+    );
+
+  console.log(
+    `Extracted ${fullText.length} characters.`
+  );
+
+  console.log(
+    `Publication date: ${
+      publishedDate || "Not found"
+    }`
+  );
+
+  return {
+    title,
+    source_url: release.source_url,
+    published_date: publishedDate,
+    full_text: fullText
+  };
+}
+
+/**
+ * Main BCSC scraper.
+ */
+async function scrapeBCSC() {
   let browser;
 
   try {
     console.log(
-      "Opening the BCSC news releases page in a browser..."
+      "Starting the BCSC scraper..."
     );
 
     browser = await puppeteer.launch({
       headless: true,
       args: [
         "--no-sandbox",
-        "--disable-setuid-sandbox"
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage"
       ]
     });
 
-    const page = await browser.newPage();
+    const listingPage =
+      await browser.newPage();
 
-    await page.setUserAgent(
+    await listingPage.setUserAgent(
       "Mozilla/5.0 (compatible; NorthAmTrack Regulatory Monitor/1.0)"
     );
 
-    await page.goto(NEWS_URL, {
-      waitUntil: "networkidle2",
-      timeout: 60000
-    });
-
-    /*
-     * Wait until the JavaScript-rendered BCSC page contains
-     * at least one news-release link.
-     */
-    await page.waitForFunction(
-      () =>
-        Array.from(
-          document.querySelectorAll("a")
-        ).some((link) =>
-          link.href.includes(
-            "/about/media-room/news-releases/"
-          )
-        ),
-      {
-        timeout: 30000
-      }
-    );
-
-    /*
-     * Extract and deduplicate news-release links from
-     * the BCSC listing page.
-     */
-    const releases = await page.evaluate(() => {
-      const seenUrls = new Set();
-
-      return Array.from(
-        document.querySelectorAll("a[href]")
-      )
-        .map((link) => {
-          const container =
-            link.closest("article") ||
-            link.closest("li") ||
-            link.closest("div");
-
-          const title = link.textContent
-            .replace(/\s+/g, " ")
-            .trim();
-
-          const dateElement =
-            container?.querySelector("time") ||
-            container?.querySelector(".date") ||
-            container?.querySelector(
-              '[class*="date"]'
-            );
-
-          const summaryElement =
-            container?.querySelector("p") ||
-            container?.querySelector(
-              ".description"
-            ) ||
-            container?.querySelector(
-              '[class*="description"]'
-            );
-
-          return {
-            title,
-            source_url: link.href,
-
-            published_date:
-              dateElement?.getAttribute(
-                "datetime"
-              ) ||
-              dateElement?.textContent
-                ?.replace(/\s+/g, " ")
-                .trim() ||
-              "",
-
-            summary_text:
-              summaryElement?.textContent
-                ?.replace(/\s+/g, " ")
-                .trim() ||
-              ""
-          };
-        })
-        .filter((release) => {
-          const isNewsRelease =
-            release.title &&
-            release.source_url.includes(
-              "/about/media-room/news-releases/"
-            );
-
-          /*
-           * Exclude the main listing page itself.
-           */
-          const isListingPage =
-            release.source_url.replace(
-              /\/$/,
-              ""
-            ) ===
-            "https://www.bcsc.bc.ca/about/media-room/news-releases";
-
-          if (
-            !isNewsRelease ||
-            isListingPage ||
-            seenUrls.has(release.source_url)
-          ) {
-            return false;
-          }
-
-          seenUrls.add(release.source_url);
-          return true;
-        });
-    });
-
-    console.log(
-      `Found ${releases.length} possible BCSC news releases.`
-    );
-
-    /*
-     * Display the first 10 releases in the GitHub Actions log.
-     */
-    releases
-      .slice(0, 10)
-      .forEach((release, index) => {
-        console.log(
-          `\n${index + 1}. ${release.title}`
-        );
-
-        console.log(
-          `   Date: ${
-            release.published_date ||
-            "Not found"
-          }`
-        );
-
-        console.log(
-          `   Summary: ${
-            release.summary_text ||
-            "Not found"
-          }`
-        );
-
-        console.log(
-          `   URL: ${release.source_url}`
-        );
-      });
+    const releases =
+      await collectReleaseLinks(
+        listingPage
+      );
 
     if (releases.length === 0) {
       throw new Error(
@@ -177,55 +511,85 @@ async function scrapeBCSCLinks() {
       );
     }
 
-    /*
-     * Convert the BCSC scraper output into the exact
-     * structure expected by services/database.js and
-     * the regulatory_updates Supabase table.
-     *
-     * This initial version processes a maximum of
-     * 10 releases per run.
-     */
-    const items = releases
-      .slice(0, 10)
-      .map((release) => {
-        const fallbackText =
-          `BCSC news release: ${release.title}`;
+    const articlePage =
+      await browser.newPage();
 
-        /*
-         * The listing page currently does not reliably
-         * provide dates. The current timestamp is used
-         * temporarily until article-page extraction is added.
-         */
-        let publishedDate =
-          new Date().toISOString();
+    await articlePage.setUserAgent(
+      "Mozilla/5.0 (compatible; NorthAmTrack Regulatory Monitor/1.0)"
+    );
 
-        if (release.published_date) {
-          const parsedDate = new Date(
-            release.published_date
+    const items = [];
+
+    for (
+      let index = 0;
+      index < releases.length;
+      index++
+    ) {
+      const release = releases[index];
+
+      console.log(
+        `\nProcessing BCSC article ${
+          index + 1
+        } of ${releases.length}`
+      );
+
+      try {
+        const article =
+          await extractArticle(
+            articlePage,
+            release
           );
 
-          if (!Number.isNaN(parsedDate.getTime())) {
-            publishedDate =
-              parsedDate.toISOString();
-          }
-        }
+        /*
+         * Limit the amount of article text sent to the AI.
+         * The complete extracted text is still stored in Supabase.
+         */
+        const summarizationText =
+          article.full_text
+            ? article.full_text.slice(
+                0,
+                15000
+              )
+            : article.title;
 
-        return {
-          title: release.title,
+        console.log(
+          "Generating 50–100 word summary..."
+        );
+
+        const enhanced =
+          await generateEnhancedSummary({
+            title: article.title,
+            description:
+              summarizationText,
+            regulator: "BCSC",
+            category:
+              determineCategory(
+                article.title
+              )
+          });
+
+        const fallbackText =
+          article.full_text ||
+          `BCSC news release concerning ${article.title}. Please review the official release for complete information.`;
+
+        items.push({
+          title: article.title,
 
           summary:
-            release.summary_text ||
-            fallbackText,
+            enhanced.summary,
 
           full_text:
-            release.summary_text ||
             fallbackText,
 
           source_url:
-            release.source_url,
+            article.source_url,
 
+          /*
+           * Null is preferable to inserting an incorrect
+           * publication date.
+           */
           published_date:
-            publishedDate,
+            article.published_date,
 
           regulator: "BCSC",
 
@@ -235,21 +599,27 @@ async function scrapeBCSCLinks() {
           regulator_country:
             "Canada",
 
-          category: "news",
+          category:
+            determineCategory(
+              article.title
+            ),
 
-          impact_rating: "LOW",
+          impact_rating:
+            determineImpactRating(
+              article.title
+            ),
 
           mutual_fund_relevance:
-            0.45,
+            determineMutualFundRelevance(
+              article.title,
+              article.full_text
+            ),
 
           why_it_matters:
-            "This BCSC update may affect securities regulation, compliance obligations, market conduct or investor-protection requirements in British Columbia. Firms should review the complete release and assess whether it applies to their Canadian operations.",
+            enhanced.why_it_matters,
 
           actions_needed:
-            "1. Review the complete BCSC release\n" +
-            "2. Assess relevance to Canadian operations\n" +
-            "3. Identify any compliance or disclosure implications\n" +
-            "4. Monitor related BCSC or CSA guidance",
+            enhanced.actions_needed,
 
           tags: [
             "BCSC",
@@ -257,16 +627,33 @@ async function scrapeBCSCLinks() {
           ],
 
           summarization_version:
-            "1.0"
-        };
-      });
+            enhanced.summarization_version
+        });
+
+        console.log(
+          `Prepared: ${article.title}`
+        );
+      } catch (articleError) {
+        console.error(
+          `Failed to process "${release.title}": ${articleError.message}`
+        );
+      }
+    }
+
+    if (items.length === 0) {
+      throw new Error(
+        "No BCSC articles were successfully prepared."
+      );
+    }
 
     console.log(
-      `\nSending ${items.length} BCSC records to Supabase...`
+      `\nSending ${items.length} BCSC articles to Supabase...`
     );
 
     const result =
-      await upsertRegulatoryUpdates(items);
+      await upsertRegulatoryUpdates(
+        items
+      );
 
     console.log(
       "\nBCSC Supabase result:"
@@ -286,16 +673,16 @@ async function scrapeBCSCLinks() {
 
     if (result.failed > 0) {
       throw new Error(
-        `${result.failed} BCSC records failed to save to Supabase.`
+        `${result.failed} BCSC records failed to save.`
       );
     }
 
     console.log(
-      "\nBCSC scraping and Supabase upsert completed successfully."
+      "\nBCSC full-text scraping, summarization and Supabase update completed successfully."
     );
   } catch (error) {
     console.error(
-      "BCSC extraction failed."
+      "\nBCSC scraper failed."
     );
 
     console.error(error.message);
@@ -308,4 +695,4 @@ async function scrapeBCSCLinks() {
   }
 }
 
-scrapeBCSCLinks();
+scrapeBCSC();
