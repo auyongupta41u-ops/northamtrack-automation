@@ -1,5 +1,9 @@
 const puppeteer = require("puppeteer");
 
+const {
+  upsertRegulatoryUpdates
+} = require("../services/database");
+
 const NEWS_URL =
   "https://www.bcsc.bc.ca/about/media-room/news-releases";
 
