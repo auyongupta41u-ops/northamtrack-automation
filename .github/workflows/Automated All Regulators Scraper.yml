@@ -86,7 +86,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-asc
         run: |
           echo "🚀 Running ASC scraper..."
-          node scraper-manual.js asc || echo "⚠️ ASC scraper failed, continuing..."
+          node scrapers/asc.js || echo "⚠️ ASC scraper failed, continuing..."
           echo "✅ ASC completed"
       
       - name: Run FCAA (Manual)
