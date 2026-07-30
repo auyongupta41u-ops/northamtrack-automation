@@ -39,14 +39,17 @@ async function run() {
 });
 
   console.log("Page loaded.\n");
+await page.waitForSelector(".CoveoResultLink", {
+  timeout: 15000
+});
+  
 const releases = await page.evaluate(() => {
-
   const articles = [];
 
   const seen = new Set();
 
   document
-    .querySelectorAll("a[href]")
+    .querySelectorAll(".CoveoResultLink")
     .forEach((link) => {
 
       const title =
