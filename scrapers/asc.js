@@ -34,7 +34,9 @@ async function run() {
     timeout: 90000
   });
 
-  await page.waitForTimeout(3000);
+  await new Promise((resolve) => {
+  setTimeout(resolve, 3000);
+});
 
   console.log("Page loaded.\n");
 const releases = await page.evaluate(() => {
