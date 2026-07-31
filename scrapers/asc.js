@@ -39,84 +39,39 @@ async function run() {
 });
 
   console.log("Page loaded.\n");
-await page.waitForSelector(".CoveoResultLink", {
-  timeout: 15000
-});
-  
-const releases = await page.evaluate(() => {
-  const articles = [];
+  await new Promise((resolve) => {
+  setTimeout(resolve, 8000);
+ });
+  const html = await page.content();
+require("fs").writeFileSync("asc-page.html", html);
 
-  const seen = new Set();
+ const diagnosticLinks = await page.evaluate(() => {
+  return Array.from(
+    document.querySelectorAll("a")
+  )
+    .slice(0, 100)
+    .map((link) => ({
+      text: link.textContent
+        .replace(/\s+/g, " ")
+        .trim(),
 
-  document
-    .querySelectorAll(".CoveoResultLink")
-    .forEach((link) => {
+      href: link.href,
 
-      const title =
-        link.textContent
-          .replace(/\s+/g, " ")
-          .trim();
-
-      const url = link.href;
-
-      if (
-        !title ||
-        title.length < 15
-      ) {
-        return;
-      }
-
-      if (
-        !url.includes("/news")
-      ) {
-        return;
-      }
-
-      if (seen.has(url)) {
-        return;
-      }
-
-      seen.add(url);
-
-      articles.push({
-        title,
-        url
-      });
-
-    });
-
-  return articles;
-
+      className:
+        typeof link.className === "string"
+          ? link.className
+          : ""
+    }));
 });
 
 console.log(
-  `Found ${releases.length} possible news releases.\n`
+  `Total links found: ${diagnosticLinks.length}`
 );
 
-releases.forEach((item, index) => {
-
-  console.log(
-    `${index + 1}. ${item.title}`
-  );
-
-  console.log(item.url);
-
-  console.log("--------------------------------");
-
+diagnosticLinks.forEach((link, index) => {
+  console.log(`\n${index + 1}. ${link.text}`);
+  console.log(`URL: ${link.href}`);
+  console.log(`Class: ${link.className}`);
 });
 
-console.log("\n=================================");
-console.log("ASC Diagnostic Completed");
-console.log("=================================");
-
-await browser.close();
-
-}
-
-run().catch((error) => {
-
-  console.error(error);
-
-  process.exit(1);
-
-});
+const releases = [];
