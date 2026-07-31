@@ -338,24 +338,39 @@ async function extractArticle(
           .trim();
       }
 
-      const headingCandidates = Array.from(
+      const excludedHeadings = new Set([
+  "news release",
+  "complain or report",
+  "news & publications",
+  "news releases",
+  "asc investor alerts",
+  "reports & publications",
+  "events & presentations",
+  "weekly updates"
+]);
+
+const headingCandidates = Array.from(
   document.querySelectorAll(
-    "h1, h2, .general-content h2, .article-content h2, main h2"
+    ".general-content h1, .general-content h2, " +
+    ".article-content h1, .article-content h2, " +
+    "main h1, main h2"
   )
 )
   .map((heading) =>
     normalize(heading.textContent)
   )
-  .filter(
-    (heading) =>
-      heading &&
-      heading.toLowerCase() !== "news release" &&
-      heading.length >= 15
-  );
+  .filter((heading) => {
+    const lowerHeading =
+      heading.toLowerCase();
+
+    return (
+      heading.length >= 15 &&
+      !excludedHeadings.has(lowerHeading)
+    );
+  });
 
 const title =
-  headingCandidates[0] ||
-  normalize(document.title);
+  headingCandidates[0] || "";
 
       let publishedDate = "";
 
@@ -615,10 +630,23 @@ const listingTitle =
     )
     .trim();
 
+const invalidExtractedTitles = new Set([
+  "",
+  "news release",
+  "complain or report",
+  "news & publications",
+  "news releases",
+  "reports & publications",
+  "events & presentations",
+  "weekly updates"
+]);
+
 const title =
-  extractedTitle.toLowerCase() === "news release"
+  invalidExtractedTitles.has(
+    extractedTitle.toLowerCase()
+  )
     ? listingTitle
-    : extractedTitle || listingTitle;
+    : extractedTitle;
 
 
   const fullText =
