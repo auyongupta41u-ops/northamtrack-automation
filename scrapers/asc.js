@@ -45,7 +45,7 @@ async function run() {
   const html = await page.content();
 require("fs").writeFileSync("asc-page.html", html);
 
- const diagnosticLinks = await page.evaluate(() => {
+const diagnosticLinks = await page.evaluate(() => {
   return Array.from(
     document.querySelectorAll("a")
   )
@@ -74,4 +74,14 @@ diagnosticLinks.forEach((link, index) => {
   console.log(`Class: ${link.className}`);
 });
 
-const releases = [];
+console.log("\n=================================");
+console.log("ASC Diagnostic Completed");
+console.log("=================================");
+
+await browser.close();
+}
+
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
