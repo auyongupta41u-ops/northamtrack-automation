@@ -338,12 +338,24 @@ async function extractArticle(
           .trim();
       }
 
-      const title =
-        normalize(
-          document.querySelector("h1")
-            ?.textContent
-        ) ||
-        normalize(document.title);
+      const headingCandidates = Array.from(
+  document.querySelectorAll(
+    "h1, h2, .general-content h2, .article-content h2, main h2"
+  )
+)
+  .map((heading) =>
+    normalize(heading.textContent)
+  )
+  .filter(
+    (heading) =>
+      heading &&
+      heading.toLowerCase() !== "news release" &&
+      heading.length >= 15
+  );
+
+const title =
+  headingCandidates[0] ||
+  normalize(document.title);
 
       let publishedDate = "";
 
@@ -592,13 +604,22 @@ async function extractArticle(
       };
     });
 
-  const title =
-    cleanText(extracted.title) ||
-    cleanText(release.title)
-      .replace(
-        /^News Release\s+\d{2}\.\d{2}\.\d{4}\s+/i,
-        ""
-      );
+ const extractedTitle =
+  cleanText(extracted.title);
+
+const listingTitle =
+  cleanText(release.title)
+    .replace(
+      /^News Release\s+\d{1,2}\.\d{1,2}\.\d{4}\s+/i,
+      ""
+    )
+    .trim();
+
+const title =
+  extractedTitle.toLowerCase() === "news release"
+    ? listingTitle
+    : extractedTitle || listingTitle;
+
 
   const fullText =
     cleanText(
