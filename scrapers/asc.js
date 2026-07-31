@@ -45,36 +45,65 @@ async function run() {
   const html = await page.content();
 require("fs").writeFileSync("asc-page.html", html);
 
-const diagnosticLinks = await page.evaluate(() => {
+const releases = await page.evaluate(() => {
+  const seen = new Set();
+
   return Array.from(
-    document.querySelectorAll("a")
+    document.querySelectorAll("a[href]")
   )
-    .slice(0, 100)
     .map((link) => ({
-      text: link.textContent
+      title: link.textContent
         .replace(/\s+/g, " ")
         .trim(),
 
-      href: link.href,
+      url: link.href
+    }))
+    .filter((item) => {
+      if (!item.title || item.title.length < 15) {
+        return false;
+      }
 
-      className:
-        typeof link.className === "string"
-          ? link.className
-          : ""
-    }));
+      let pathname;
+
+      try {
+        pathname = new URL(item.url)
+          .pathname
+          .toLowerCase()
+          .replace(/\/$/, "");
+      } catch {
+        return false;
+      }
+
+      const listingPath =
+        "/en/news-and-publications/news-releases";
+
+      const isArticle =
+        pathname.startsWith(`${listingPath}/`) &&
+        pathname !== listingPath;
+
+      if (!isArticle || seen.has(pathname)) {
+        return false;
+      }
+
+      seen.add(pathname);
+      return true;
+    });
 });
 
 console.log(
-  `Total links found: ${diagnosticLinks.length}`
+  `Found ${releases.length} possible ASC news releases.\n`
 );
 
-diagnosticLinks.forEach((link, index) => {
-  console.log(`\n${index + 1}. ${link.text}`);
-  console.log(`URL: ${link.href}`);
-  console.log(`Class: ${link.className}`);
-});
+releases.slice(0, 20).forEach((item, index) => {
+  console.log(
+    `${index + 1}. ${item.title}`
+  );
 
-console.log("\n=================================");
+  console.log(item.url);
+
+  console.log("--------------------------------");
+});
+  console.log("\n=================================");
 console.log("ASC Diagnostic Completed");
 console.log("=================================");
 
