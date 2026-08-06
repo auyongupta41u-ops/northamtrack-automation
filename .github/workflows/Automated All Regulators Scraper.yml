@@ -76,7 +76,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-amf
         run: |
           echo "🚀 Running AMF scraper..."
-          node scraper-manual.js amf || echo "⚠️ AMF scraper failed, continuing..."
+          node scrapers/amf.js || echo "⚠️ AMF scraper failed, continuing..."."
           echo "✅ AMF completed"
       
       - name: Run ASC (Manual)
