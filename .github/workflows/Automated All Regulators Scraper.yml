@@ -49,12 +49,12 @@ jobs:
           node scrapers/bcsc.js
           echo "✅ BCSC completed"
       
-      - name: Run CSA (Manual)
-        env:
+          name: Run CSA (Manual)
+          env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-csa
-        run: |
+          run: |
           echo "🚀 Running CSA scraper..."
               node scrapers/csa.js
           echo "✅ CSA completed"
@@ -76,7 +76,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-amf
         run: |
           echo "🚀 Running AMF scraper..."
-         node scrapers/amf.js || echo "⚠️ AMF scraper failed, continuing..."
+          node scrapers/amf.js || echo "⚠️ AMF scraper failed, continuing..."
           echo "✅ AMF completed"
       
       - name: Run ASC (Manual)
