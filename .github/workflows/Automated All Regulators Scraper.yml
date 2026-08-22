@@ -13,9 +13,9 @@ jobs:
     name: Scrape All Regulators (SEC, OSC, BCSC, CSA, CIRO, AMF, ASC, FCAA)
     runs-on: ubuntu-latest
 
-env:
+    env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
