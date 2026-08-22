@@ -252,36 +252,7 @@ function generateWhyItMatters(
   );
 }
 
-  if (
-    combined.includes("rule") ||
-    combined.includes("regulation") ||
-    combined.includes("amendment") ||
-    combined.includes("proposal") ||
-    combined.includes("consultation")
-  ) {
-    return (
-      `This ${regulator} development may change regulatory expectations or future compliance obligations. ` +
-      "Affected firms should assess its scope, identify impacted policies and operations, and monitor implementation dates or further guidance."
-    );
-  }
-
-  if (
-    combined.includes("fund") ||
-    combined.includes("investment")
-  ) {
-    return (
-      `This update may be relevant to investment managers, funds, dealers or other market participants. ` +
-      "Firms should consider whether it affects product governance, disclosure, distribution, compliance controls or investor communications."
-    );
-  }
-
-  return (
-    `This ${regulator} update may affect regulatory compliance, market conduct, disclosure or investor protection. ` +
-    "Firms should review the source material and determine whether any operational, legal or compliance response is required."
-  );
-}
-
-/**
+  /**
  * Generate concise practical actions.
  */
 function generateActionsNeeded(
