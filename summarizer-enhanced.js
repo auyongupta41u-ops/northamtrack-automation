@@ -118,17 +118,24 @@ async function generateSummary(
             {
               role: "system",
               content:
-                "You are a regulatory intelligence analyst. Write accurate, concise summaries based only on the supplied article text."
+                "You are a regulatory intelligence analyst. " +
+                "Write a simple, neutral summary of the regulatory development. " +
+                "Paraphrase the source in your own words rather than copying sentences. " +
+                "Ignore website navigation, breadcrumbs, menus, headers, footer text, location labels and other webpage clutter. " +
+                "Focus only on the substantive regulatory announcement.""
             },
             {
               role: "user",
               content:
                 `Regulator: ${regulator}\n` +
-                `Title: ${cleanedTitle}\n\n` +
-                `Article text:\n${cleanedDescription}\n\n` +
-                "Write a clear summary of 50 to 100 words. " +
-                "Explain what happened, who is involved or affected, and the main regulatory significance. " +
-                "Do not repeat the title. Do not add facts that are not in the article. " +
+                `Title: ${cleanedTitle}\n` +
+                `Article text: ${cleanedDescription}\n\n` +
+                "Write a concise summary of about 50 to 80 words. " +
+                "Use plain professional English and 2 to 3 sentences. " +
+                "Explain what the regulator announced or published, the main subject, and any important regulatory implication. " +
+                "Do not quote the article. " +
+                "Do not copy introductory wording such as 'Home / News'. " +
+                "Do not invent facts or implications that are not supported by the article. " +
                 "Do not include headings, bullet points or labels."
             }
           ],
@@ -182,13 +189,68 @@ function generateWhyItMatters(
     combined.includes("alleges") ||
     combined.includes("fraud") ||
     combined.includes("charged") ||
-    combined.includes("penalty")
+    combined.includes("penalty") ||
+    combined.includes("sanction") ||
+    combined.includes("settlement")
   ) {
     return (
-      `This ${regulator} matter highlights conduct and enforcement risks. ` +
-      "Firms should assess whether similar activities, controls or supervisory gaps could exist within their operations and review the regulator's findings for broader compliance lessons."
+      `This ${regulator} development may indicate enforcement, conduct or supervisory risks relevant to regulated firms. ` +
+      "Legal and compliance teams should consider whether similar activities, controls or governance issues could arise within their own operations."
     );
   }
+
+  if (
+    combined.includes("consultation") ||
+    combined.includes("proposal") ||
+    combined.includes("proposes") ||
+    combined.includes("comment")
+  ) {
+    return (
+      `This ${regulator} development may lead to future regulatory requirements or policy changes. ` +
+      "Firms should assess whether the proposal could affect their products, disclosures, operations or compliance obligations."
+    );
+  }
+
+  if (
+    combined.includes("guidance") ||
+    combined.includes("guideline") ||
+    combined.includes("expectation")
+  ) {
+    return (
+      `This ${regulator} guidance may clarify regulatory expectations for market participants. ` +
+      "Relevant teams should compare the guidance with current policies, controls and operating practices to identify any gaps."
+    );
+  }
+
+  if (
+    combined.includes("final amendment") ||
+    combined.includes("final rule") ||
+    combined.includes("amendment") ||
+    combined.includes("rule change")
+  ) {
+    return (
+      `This ${regulator} development may introduce or modify regulatory requirements. ` +
+      "Firms should determine whether implementation changes are needed across disclosures, systems, procedures or compliance controls."
+    );
+  }
+
+  if (
+    combined.includes("year in review") ||
+    combined.includes("annual report") ||
+    combined.includes("business plan") ||
+    combined.includes("strategic plan")
+  ) {
+    return (
+      `This ${regulator} publication provides insight into the regulator's priorities, recent work and future direction. ` +
+      "It can help firms anticipate areas of regulatory focus and consider whether upcoming initiatives may affect their business or compliance planning."
+    );
+  }
+
+  return (
+    `This ${regulator} development may be relevant to firms operating in the Canadian securities market. ` +
+    "Legal and compliance teams should review the announcement and assess whether it has any implications for their products, operations, disclosures or regulatory obligations."
+  );
+}
 
   if (
     combined.includes("rule") ||
