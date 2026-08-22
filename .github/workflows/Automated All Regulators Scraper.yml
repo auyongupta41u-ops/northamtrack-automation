@@ -99,7 +99,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}-${{ github.run_number }}-fcaa
         run: |
           echo "🚀 Running FCAA scraper..."
-          node scraper-manual.js fcaa || echo "⚠️ FCAA scraper failed, continuing..."
+          node scrapers/fcaa.js || echo "⚠️ FCAA scraper failed, continuing..."
           echo "✅ FCAA completed"
       
       - name: Upload logs
