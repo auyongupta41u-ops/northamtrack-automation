@@ -122,7 +122,7 @@ async function generateSummary(
                 "Write a simple, neutral summary of the regulatory development. " +
                 "Paraphrase the source in your own words rather than copying sentences. " +
                 "Ignore website navigation, breadcrumbs, menus, headers, footer text, location labels and other webpage clutter. " +
-                "Focus only on the substantive regulatory announcement.""
+                "Focus only on the substantive regulatory announcement."
             },
             {
               role: "user",
