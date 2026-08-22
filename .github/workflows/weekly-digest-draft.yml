@@ -2,11 +2,9 @@ name: NorthAmTrack Weekly Digest Draft
 
 on:
   schedule:
-    # Every Friday at 9:00 AM IST
-    # 09:00 IST = 03:30 UTC
+    # Friday 9:00 AM IST
     - cron: "30 3 * * 5"
 
-  # Keep manual trigger available for testing
   workflow_dispatch:
 
 jobs:
@@ -32,3 +30,12 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: node scripts/prepare-weekly-digest.js
+
+      - name: Upload weekly digest draft
+        uses: actions/upload-artifact@v4
+        with:
+          name: northamtrack-weekly-digest-draft
+          path: |
+            output/weekly-digest-draft.html
+            output/weekly-digest-draft.json
+          retention-days: 14
