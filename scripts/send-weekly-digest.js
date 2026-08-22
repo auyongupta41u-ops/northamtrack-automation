@@ -1,5 +1,4 @@
 const { createClient } = require("@supabase/supabase-js");
-const OpenAI = require("openai");
 
 const SUPABASE_URL =
   process.env.SUPABASE_URL;
@@ -13,8 +12,8 @@ const RESEND_API_KEY =
 const WEEKLY_EMAIL_RECIPIENTS =
   process.env.WEEKLY_EMAIL_RECIPIENTS;
 
-const OPENAI_API_KEY =
-  process.env.OPENAI_API_KEY;
+const GROQ_API_KEY =
+  process.env.GROQ_API_KEY;
 
 
 /* =========================================================
@@ -45,25 +44,21 @@ if (!WEEKLY_EMAIL_RECIPIENTS) {
   );
 }
 
-if (!OPENAI_API_KEY) {
+if (!GROQ_API_KEY) {
   throw new Error(
-    "OPENAI_API_KEY is missing."
+    "GROQ_API_KEY is missing."
   );
 }
 
 
 /* =========================================================
-   CLIENTS
+   SUPABASE
 ========================================================= */
 
 const supabase = createClient(
   SUPABASE_URL,
   SUPABASE_SERVICE_KEY
 );
-
-const openai = new OpenAI({
-  apiKey: OPENAI_API_KEY
-});
 
 
 /* =========================================================
@@ -89,9 +84,8 @@ function escapeHtml(value = "") {
 
 
 /*
-  Prevent duplicate regulator names such as:
-
-  Corporate insider pays BCSC... | BCSC | BCSC
+  Prevent:
+  Headline | BCSC | BCSC
 */
 function cleanEmailTitle(
   title = "",
@@ -255,7 +249,7 @@ async function getWeeklyUpdates() {
 
 
 /* =========================================================
-   AI SUMMARY
+   GROQ SUMMARY
 ========================================================= */
 
 async function generateDigestSummary(
@@ -269,74 +263,99 @@ async function generateDigestSummary(
     );
 
   const response =
-    await openai.responses.create({
-      model:
-        "gpt-4.1-mini",
+    await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
 
-      input: [
-        {
-          role:
-            "system",
+        headers: {
+          Authorization:
+            `Bearer ${GROQ_API_KEY}`,
 
-          content: `
-You are an analyst writing NorthAmTrack regulatory news summaries.
-
-Your job is to understand the source material and explain the regulatory development entirely in your own words.
-
-STRICT RULES:
-
-1. Write no more than 60 words.
-2. Completely paraphrase the source.
-3. Never reproduce a sentence from the source verbatim.
-4. Never reproduce a distinctive phrase from the source verbatim unless it is an unavoidable legal or regulatory term.
-5. Never use direct quotations.
-6. Never use quotation marks.
-7. Do not simply shorten or extract sentences from the article.
-8. Ignore website navigation, breadcrumbs, menus, page headings, dates, publication numbers, footer text and boilerplate.
-9. Explain the actual regulatory development clearly.
-10. State who or what is involved when relevant.
-11. Mention the main regulatory significance only when it is clear from the source.
-12. Use neutral, professional, plain English.
-13. Do not add facts that are not supported by the source.
-14. Do not include headings such as Summary, Why it matters, Action or Key takeaway.
-15. Do not include recommendations.
-16. Return only the finished summary.
-
-The summary must sound like an independent NorthAmTrack explanation, not copied regulator text.
-`
+          "Content-Type":
+            "application/json"
         },
-        {
-          role:
-            "user",
 
-          content:
-            `Regulator: ${cleanText(item.regulator)}\n` +
-            `Article title: ${cleanEmailTitle(
-              item.title,
-              item.regulator
-            )}\n\n` +
-            `SOURCE MATERIAL:\n${sourceText.slice(
-              0,
-              12000
-            )}\n\n` +
-            "Write an original NorthAmTrack summary of this development. " +
-            "Use entirely fresh wording and no more than 60 words. " +
-            "Do not quote or copy the source."
-        }
-      ],
+        body:
+          JSON.stringify({
+            model:
+              "openai/gpt-oss-20b",
 
-      max_output_tokens:
-        140
-    });
+            messages: [
+              {
+                role:
+                  "system",
+
+                content:
+                  "You write NorthAmTrack regulatory summaries. " +
+                  "Understand the regulatory development and rewrite it entirely in your own words. " +
+                  "Never copy sentences or distinctive phrases from the source. " +
+                  "Never use direct quotations or quotation marks. " +
+                  "Ignore website navigation, breadcrumbs, menus, page labels, publication numbers and boilerplate. " +
+                  "Use neutral professional English. " +
+                  "Do not invent facts. " +
+                  "Return only the summary."
+              },
+
+              {
+                role:
+                  "user",
+
+                content:
+                  `Regulator: ${cleanText(
+                    item.regulator
+                  )}\n` +
+
+                  `Title: ${cleanEmailTitle(
+                    item.title,
+                    item.regulator
+                  )}\n\n` +
+
+                  `Source article:\n${sourceText.slice(
+                    0,
+                    10000
+                  )}\n\n` +
+
+                  "Write a simple summary in your own words. " +
+                  "Maximum 60 words. " +
+                  "Explain what happened, who or what is involved, and the main regulatory point. " +
+                  "Do not include headings, recommendations, actions, impact ratings or quotations."
+              }
+            ],
+
+            temperature:
+              0.2,
+
+            max_completion_tokens:
+              120
+          })
+      }
+    );
+
+  const result =
+    await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      `Groq error: ${JSON.stringify(result)}`
+    );
+  }
 
   let summary =
     cleanText(
-      response.output_text
+      result?.choices?.[0]
+        ?.message?.content
     );
 
+  if (!summary) {
+    throw new Error(
+      "Groq returned an empty summary."
+    );
+  }
+
   /*
-    Safety net:
-    remove quotation marks if any appear.
+    Remove quote characters as an additional
+    protection even though the prompt forbids them.
   */
   summary =
     summary
@@ -345,7 +364,7 @@ The summary must sound like an independent NorthAmTrack explanation, not copied 
       .trim();
 
   /*
-    Hard maximum of 60 words.
+    Hard maximum: 60 words.
   */
   const words =
     summary
@@ -358,10 +377,7 @@ The summary must sound like an independent NorthAmTrack explanation, not copied 
     summary =
       words
         .slice(0, 60)
-        .join(" ");
-
-    summary =
-      summary
+        .join(" ")
         .replace(
           /[,:;–—-]+$/,
           ""
@@ -369,7 +385,9 @@ The summary must sound like an independent NorthAmTrack explanation, not copied 
         .trim();
 
     if (
-      !/[.!?]$/.test(summary)
+      !/[.!?]$/.test(
+        summary
+      )
     ) {
       summary += ".";
     }
@@ -423,7 +441,7 @@ async function createDigestItems(
       });
 
       console.log(
-        "✓ Summary generated"
+        "✓ Groq summary generated"
       );
 
     } catch (error) {
@@ -432,8 +450,7 @@ async function createDigestItems(
       );
 
       /*
-        If AI fails, do NOT dump the raw
-        full_text into the email.
+        Do not dump raw scraper text into email.
       */
       results.push({
         ...item,
@@ -455,7 +472,7 @@ async function createDigestItems(
 
 
 /* =========================================================
-   BUILD ARTICLE HTML
+   ARTICLE EMAIL HTML
 ========================================================= */
 
 function buildArticleHtml(
@@ -485,8 +502,7 @@ function buildArticleHtml(
     escapeHtml(
       cleanText(
         item.summary
-      ) ||
-      "Please review the official regulatory release for further information."
+      )
     );
 
   const url =
@@ -524,15 +540,15 @@ function buildArticleHtml(
       ${
         date
           ? `
-            <div
-              style="
-                font-size:13px;
-                color:#666666;
-                margin-bottom:14px;
-              "
-            >
-              ${date}
-            </div>
+          <div
+            style="
+              font-size:13px;
+              color:#666666;
+              margin-bottom:14px;
+            "
+          >
+            ${date}
+          </div>
           `
           : ""
       }
@@ -554,6 +570,7 @@ function buildArticleHtml(
           line-height:1.5;
         "
       >
+
         <strong>
           For further information:
         </strong>
@@ -567,6 +584,7 @@ function buildArticleHtml(
         >
           View official release
         </a>
+
       </div>
 
     </div>
@@ -575,7 +593,7 @@ function buildArticleHtml(
 
 
 /* =========================================================
-   SEND EMAIL
+   SEND THROUGH RESEND
 ========================================================= */
 
 async function sendEmail(
@@ -607,9 +625,7 @@ async function sendEmail(
     <html>
 
       <head>
-        <meta
-          charset="UTF-8"
-        />
+        <meta charset="UTF-8" />
 
         <meta
           name="viewport"
@@ -797,7 +813,7 @@ async function run() {
     }
 
     console.log(
-      "\nGenerating original 60-word summaries...\n"
+      "\nGenerating 60-word Groq summaries...\n"
     );
 
     const digestItems =
