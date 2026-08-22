@@ -1,53 +1,38 @@
 const { createClient } = require("@supabase/supabase-js");
 
-const SUPABASE_URL =
-  process.env.SUPABASE_URL;
+/* =========================================================
+   ENVIRONMENT VARIABLES
+========================================================= */
 
-const SUPABASE_SERVICE_KEY =
-  process.env.SUPABASE_SERVICE_KEY;
-
-const RESEND_API_KEY =
-  process.env.RESEND_API_KEY;
-
-const WEEKLY_EMAIL_RECIPIENTS =
-  process.env.WEEKLY_EMAIL_RECIPIENTS;
-
-const GROQ_API_KEY =
-  process.env.GROQ_API_KEY;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const WEEKLY_EMAIL_RECIPIENTS = process.env.WEEKLY_EMAIL_RECIPIENTS;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 
 /* =========================================================
-   ENVIRONMENT CHECKS
+   CHECK REQUIRED VARIABLES
 ========================================================= */
 
 if (!SUPABASE_URL) {
-  throw new Error(
-    "SUPABASE_URL is missing."
-  );
+  throw new Error("SUPABASE_URL is missing.");
 }
 
 if (!SUPABASE_SERVICE_KEY) {
-  throw new Error(
-    "SUPABASE_SERVICE_KEY is missing."
-  );
+  throw new Error("SUPABASE_SERVICE_KEY is missing.");
 }
 
 if (!RESEND_API_KEY) {
-  throw new Error(
-    "RESEND_API_KEY is missing."
-  );
+  throw new Error("RESEND_API_KEY is missing.");
 }
 
 if (!WEEKLY_EMAIL_RECIPIENTS) {
-  throw new Error(
-    "WEEKLY_EMAIL_RECIPIENTS is missing."
-  );
+  throw new Error("WEEKLY_EMAIL_RECIPIENTS is missing.");
 }
 
 if (!GROQ_API_KEY) {
-  throw new Error(
-    "GROQ_API_KEY is missing."
-  );
+  throw new Error("GROQ_API_KEY is missing.");
 }
 
 
@@ -83,19 +68,13 @@ function escapeHtml(value = "") {
 }
 
 
-/*
-  Prevent:
-  Headline | BCSC | BCSC
-*/
-function cleanEmailTitle(
-  title = "",
-  regulator = ""
-) {
-  let cleanedTitle =
-    cleanText(title);
+/* =========================================================
+   CLEAN TITLE
+========================================================= */
 
-  const cleanedRegulator =
-    cleanText(regulator);
+function cleanEmailTitle(title = "", regulator = "") {
+  let cleanedTitle = cleanText(title);
+  const cleanedRegulator = cleanText(regulator);
 
   if (!cleanedRegulator) {
     return cleanedTitle;
@@ -124,7 +103,7 @@ function cleanEmailTitle(
 
 
 /* =========================================================
-   DATE HELPERS
+   DATE FORMAT
 ========================================================= */
 
 function formatDate(value) {
@@ -132,31 +111,19 @@ function formatDate(value) {
     return "";
   }
 
-  const date =
-    new Date(value);
+  const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return "";
   }
 
   return new Intl.DateTimeFormat(
     "en-GB",
     {
-      timeZone:
-        "Asia/Kolkata",
-
-      day:
-        "2-digit",
-
-      month:
-        "short",
-
-      year:
-        "numeric"
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
     }
   ).format(date);
 }
@@ -166,79 +133,62 @@ function getWeekEndingLabel() {
   return new Intl.DateTimeFormat(
     "en-GB",
     {
-      timeZone:
-        "Asia/Kolkata",
-
-      weekday:
-        "long",
-
-      day:
-        "2-digit",
-
-      month:
-        "long",
-
-      year:
-        "numeric"
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
     }
   ).format(new Date());
 }
 
 
 /* =========================================================
-   FETCH WEEKLY UPDATES
+   FETCH LAST 7 DAYS FROM SUPABASE
 ========================================================= */
 
 async function getWeeklyUpdates() {
-  const now =
-    new Date();
+
+  const now = new Date();
 
   const sevenDaysAgo =
     new Date(
       now.getTime() -
-      7 *
-      24 *
-      60 *
-      60 *
-      1000
+      7 * 24 * 60 * 60 * 1000
     );
 
   console.log(
     `Fetching updates since ${sevenDaysAgo.toISOString()}`
   );
 
-  const {
-    data,
-    error
-  } = await supabase
-    .from("regulatory_updates")
-    .select(`
-      title,
-      summary,
-      full_text,
-      source_url,
-      published_date,
-      regulator,
-      is_active
-    `)
-    .eq(
-      "is_active",
-      true
-    )
-    .gte(
-      "published_date",
-      sevenDaysAgo.toISOString()
-    )
-    .lte(
-      "published_date",
-      now.toISOString()
-    )
-    .order(
-      "published_date",
-      {
-        ascending: false
-      }
-    );
+  const { data, error } =
+    await supabase
+      .from("regulatory_updates")
+      .select(`
+        title,
+        summary,
+        full_text,
+        source_url,
+        published_date,
+        regulator,
+        regulator_name,
+        category,
+        is_active
+      `)
+      .eq("is_active", true)
+      .gte(
+        "published_date",
+        sevenDaysAgo.toISOString()
+      )
+      .lte(
+        "published_date",
+        now.toISOString()
+      )
+      .order(
+        "published_date",
+        {
+          ascending: false
+        }
+      );
 
   if (error) {
     throw error;
@@ -249,18 +199,122 @@ async function getWeeklyUpdates() {
 
 
 /* =========================================================
+   CHOOSE BEST SOURCE TEXT
+========================================================= */
+
+function getSourceText(item) {
+
+  const fullText =
+    cleanText(item.full_text);
+
+  const existingSummary =
+    cleanText(item.summary);
+
+  /*
+    Prefer full article text.
+
+    If full text isn't available, use the
+    existing stored summary as context.
+
+    Title is the final fallback.
+  */
+
+  if (fullText.length > 100) {
+    return fullText;
+  }
+
+  if (existingSummary.length > 50) {
+    return existingSummary;
+  }
+
+  return cleanText(item.title);
+}
+
+
+/* =========================================================
    GROQ SUMMARY
 ========================================================= */
 
-async function generateDigestSummary(
-  item
-) {
+async function generateDigestSummary(item) {
+
   const sourceText =
-    cleanText(
-      item.full_text ||
-      item.summary ||
-      item.title
+    getSourceText(item);
+
+  const title =
+    cleanEmailTitle(
+      item.title,
+      item.regulator
     );
+
+  const regulator =
+    cleanText(
+      item.regulator_name ||
+      item.regulator
+    );
+
+  const prompt = `
+You are preparing a short regulatory news summary for NorthAmTrack.
+
+ARTICLE TITLE:
+${title}
+
+REGULATOR:
+${regulator}
+
+SOURCE MATERIAL:
+${sourceText.slice(0, 12000)}
+
+TASK:
+
+Read and understand the source material.
+
+Write ONE concise factual paragraph explaining the regulatory development in your own words.
+
+STRICT RULES:
+
+1. Maximum 60 words.
+
+2. Rewrite the information entirely in your own words.
+
+3. Do NOT copy sentences from the source.
+
+4. Do NOT reproduce quotations.
+
+5. Do NOT use quotation marks.
+
+6. Do NOT reproduce website navigation text such as:
+   Home
+   News
+   About
+   Breadcrumbs
+   Menu labels
+   Page headings
+
+7. Do NOT start with phrases such as:
+   "This article says"
+   "The release states"
+   "According to the article"
+   "Please review"
+   "For further information"
+
+8. Do NOT include a heading.
+
+9. Do NOT repeat the article title.
+
+10. Do NOT give legal advice.
+
+11. Do NOT invent information.
+
+12. Focus on:
+    - what happened;
+    - who or what is affected;
+    - the main regulatory development.
+
+13. Use clear professional English understandable by a legal or compliance professional.
+
+Return ONLY the final summary paragraph.
+`;
+
 
   const response =
     await fetch(
@@ -276,70 +330,70 @@ async function generateDigestSummary(
             "application/json"
         },
 
-        body:
-          JSON.stringify({
-            model:
-              "openai/gpt-oss-20b",
+        body: JSON.stringify({
 
-            messages: [
-              {
-                role:
-                  "system",
+          model:
+            "openai/gpt-oss-20b",
 
-                content:
-                  "You write NorthAmTrack regulatory summaries. " +
-                  "Understand the regulatory development and rewrite it entirely in your own words. " +
-                  "Never copy sentences or distinctive phrases from the source. " +
-                  "Never use direct quotations or quotation marks. " +
-                  "Ignore website navigation, breadcrumbs, menus, page labels, publication numbers and boilerplate. " +
-                  "Use neutral professional English. " +
-                  "Do not invent facts. " +
-                  "Return only the summary."
-              },
+          messages: [
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
 
-              {
-                role:
-                  "user",
+          /*
+            Important for GPT-OSS on Groq:
+            don't return reasoning.
+          */
+          include_reasoning: false,
 
-                content:
-                  `Regulator: ${cleanText(
-                    item.regulator
-                  )}\n` +
+          /*
+            Summarization is straightforward,
+            so low reasoning is enough.
+          */
+          reasoning_effort: "low",
 
-                  `Title: ${cleanEmailTitle(
-                    item.title,
-                    item.regulator
-                  )}\n\n` +
+          temperature: 0.3,
 
-                  `Source article:\n${sourceText.slice(
-                    0,
-                    10000
-                  )}\n\n` +
+          max_completion_tokens: 250,
 
-                  "Write a simple summary in your own words. " +
-                  "Maximum 60 words. " +
-                  "Explain what happened, who or what is involved, and the main regulatory point. " +
-                  "Do not include headings, recommendations, actions, impact ratings or quotations."
-              }
-            ],
-
-            temperature:
-              0.2,
-
-            max_completion_tokens:
-              120
-          })
+          stream: false
+        })
       }
     );
 
-  const result =
-    await response.json();
 
-  if (!response.ok) {
+  const rawResponse =
+    await response.text();
+
+
+  let result;
+
+  try {
+
+    result =
+      JSON.parse(rawResponse);
+
+  } catch (error) {
+
     throw new Error(
-      `Groq error: ${JSON.stringify(result)}`
+      `Groq returned invalid JSON: ${rawResponse.slice(0, 500)}`
     );
   }
+
+
+  if (!response.ok) {
+
+    throw new Error(
+      `Groq API ${response.status}: ${rawResponse.slice(0, 1000)}`
+    );
+  }
+
+
+  /*
+    Get final answer
+  */
 
   let summary =
     cleanText(
@@ -347,33 +401,75 @@ async function generateDigestSummary(
         ?.message?.content
     );
 
+
+  /*
+    Debugging information if Groq
+    unexpectedly gives no final answer.
+  */
+
   if (!summary) {
+
+    console.error(
+      "Groq returned no content."
+    );
+
+    console.error(
+      "Finish reason:",
+      result?.choices?.[0]
+        ?.finish_reason
+    );
+
+    console.error(
+      "Response:",
+      JSON.stringify(result).slice(
+        0,
+        2000
+      )
+    );
+
     throw new Error(
-      "Groq returned an empty summary."
+      "Groq returned an empty final summary."
     );
   }
 
-  /*
-    Remove quote characters as an additional
-    protection even though the prompt forbids them.
-  */
+
+  /* =====================================================
+     CLEAN GROQ OUTPUT
+  ===================================================== */
+
   summary =
     summary
+      .replace(/^summary\s*:\s*/i, "")
+      .replace(/^final summary\s*:\s*/i, "")
       .replace(/[“”"]/g, "")
       .replace(/[‘’]/g, "'")
+      .replace(/\s+/g, " ")
       .trim();
 
+
   /*
-    Hard maximum: 60 words.
+    Remove bullet if model adds one.
   */
+
+  summary =
+    summary.replace(
+      /^[•\-–—]\s*/,
+      ""
+    );
+
+
+  /*
+    HARD 60 WORD LIMIT
+  */
+
   const words =
     summary
       .split(/\s+/)
       .filter(Boolean);
 
-  if (
-    words.length > 60
-  ) {
+
+  if (words.length > 60) {
+
     summary =
       words
         .slice(0, 60)
@@ -385,73 +481,59 @@ async function generateDigestSummary(
         .trim();
 
     if (
-      !/[.!?]$/.test(
-        summary
-      )
+      !/[.!?]$/.test(summary)
     ) {
       summary += ".";
     }
   }
+
 
   return summary;
 }
 
 
 /* =========================================================
-   PREPARE DIGEST ITEMS
+   GENERATE ALL SUMMARIES
 ========================================================= */
 
-async function createDigestItems(
-  items
-) {
+async function createDigestItems(items) {
+
   const results = [];
+
 
   for (
     let index = 0;
     index < items.length;
     index++
   ) {
+
     const item =
       items[index];
 
+
     console.log(
-      `Generating summary ${
-        index + 1
-      } of ${items.length}: ${
-        item.title
-      }`
+      `\nGenerating summary ${index + 1} of ${items.length}: ${item.title}`
     );
 
+
     try {
+
       const summary =
         await generateDigestSummary(
           item
         );
 
-      results.push({
-        ...item,
-
-        title:
-          cleanEmailTitle(
-            item.title,
-            item.regulator
-          ),
-
-        summary
-      });
 
       console.log(
         "✓ Groq summary generated"
       );
 
-    } catch (error) {
-      console.warn(
-        `Summary generation failed for "${item.title}": ${error.message}`
+
+      console.log(
+        `  ${summary}`
       );
 
-      /*
-        Do not dump raw scraper text into email.
-      */
+
       results.push({
         ...item,
 
@@ -461,23 +543,53 @@ async function createDigestItems(
             item.regulator
           ),
 
-        summary:
+        digest_summary:
+          summary
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        `✗ Summary generation failed for "${item.title}"`
+      );
+
+      console.error(
+        error.message
+      );
+
+
+      /*
+        We deliberately DO NOT put raw scraped
+        text into the email if AI fails.
+      */
+
+      results.push({
+        ...item,
+
+        title:
+          cleanEmailTitle(
+            item.title,
+            item.regulator
+          ),
+
+        digest_summary:
           "Please review the official regulatory release for further information."
       });
     }
   }
+
 
   return results;
 }
 
 
 /* =========================================================
-   ARTICLE EMAIL HTML
+   BUILD EACH EMAIL ARTICLE
 ========================================================= */
 
-function buildArticleHtml(
-  item
-) {
+function buildArticleHtml(item) {
+
   const title =
     escapeHtml(
       cleanEmailTitle(
@@ -486,6 +598,7 @@ function buildArticleHtml(
       )
     );
 
+
   const regulator =
     escapeHtml(
       cleanText(
@@ -493,17 +606,22 @@ function buildArticleHtml(
       )
     );
 
+
   const date =
-    formatDate(
-      item.published_date
+    escapeHtml(
+      formatDate(
+        item.published_date
+      )
     );
+
 
   const summary =
     escapeHtml(
       cleanText(
-        item.summary
+        item.digest_summary
       )
     );
+
 
   const url =
     escapeHtml(
@@ -512,62 +630,87 @@ function buildArticleHtml(
       )
     );
 
+
+  /*
+    If regulator is already present at
+    the end of title, don't duplicate it.
+  */
+
+  let displayTitle =
+    title;
+
+
+  if (regulator) {
+
+    const lowerTitle =
+      title.toLowerCase();
+
+    const suffix =
+      `| ${regulator}`.toLowerCase();
+
+
+    if (
+      !lowerTitle.endsWith(
+        suffix
+      )
+    ) {
+
+      displayTitle =
+        `${title} | ${regulator}`;
+    }
+  }
+
+
   return `
     <div
       style="
-        margin-bottom:30px;
-        padding-bottom:26px;
+        margin-bottom:32px;
+        padding-bottom:28px;
         border-bottom:1px solid #dddddd;
       "
     >
 
       <div
         style="
-          font-size:16px;
+          font-size:17px;
           font-weight:700;
-          line-height:1.5;
-          color:#202124;
+          line-height:1.45;
+          color:#222222;
           margin-bottom:10px;
         "
       >
-        ${title}${
-          regulator
-            ? ` | ${regulator}`
-            : ""
-        }
+        ${displayTitle}
       </div>
 
-      ${
-        date
-          ? `
-          <div
-            style="
-              font-size:13px;
-              color:#666666;
-              margin-bottom:14px;
-            "
-          >
-            ${date}
-          </div>
-          `
-          : ""
-      }
+
+      <div
+        style="
+          font-size:13px;
+          color:#777777;
+          margin-bottom:16px;
+        "
+      >
+        ${date}
+      </div>
+
 
       <div
         style="
           font-size:15px;
           line-height:1.65;
           color:#333333;
-          margin-bottom:14px;
+          margin-bottom:16px;
         "
       >
         ${summary}
       </div>
 
+
       <div
         style="
           font-size:14px;
           line-height:1.5;
+          color:#222222;
         "
       >
 
@@ -593,149 +736,193 @@ function buildArticleHtml(
 
 
 /* =========================================================
-   SEND THROUGH RESEND
+   BUILD EMAIL
 ========================================================= */
 
-async function sendEmail(
-  items
-) {
-  const recipients =
-    WEEKLY_EMAIL_RECIPIENTS
-      .split(",")
-      .map(
-        (email) =>
-          email.trim()
-      )
-      .filter(Boolean);
-
-  if (
-    recipients.length === 0
-  ) {
-    throw new Error(
-      "No valid email recipients configured."
-    );
-  }
+function buildEmailHtml(items) {
 
   const weekEnding =
     getWeekEndingLabel();
 
-  const html = `
-    <!DOCTYPE html>
 
-    <html>
+  const articles =
+    items
+      .map(
+        buildArticleHtml
+      )
+      .join("");
 
-      <head>
-        <meta charset="UTF-8" />
 
-        <meta
-          name="viewport"
-          content="width=device-width, initial-scale=1.0"
-        />
-      </head>
+  return `
+<!DOCTYPE html>
 
-      <body
-        style="
-          margin:0;
-          padding:0;
-          background:#f5f5f5;
-          font-family:
-            Arial,
-            Helvetica,
-            sans-serif;
-        "
-      >
+<html>
 
-        <div
-          style="
-            max-width:760px;
-            margin:0 auto;
-            background:#ffffff;
-            padding:34px;
-          "
-        >
+<head>
 
-          <div
-            style="
-              font-size:24px;
-              font-weight:700;
-              color:#111111;
-              margin-bottom:5px;
-            "
-          >
-            NorthAmTrack
-          </div>
+<meta charset="UTF-8">
 
-          <div
-            style="
-              font-size:14px;
-              color:#777777;
-              margin-bottom:28px;
-            "
-          >
-            Regulatory Intelligence Platform
-          </div>
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1.0"
+>
 
-          <div
-            style="
-              font-size:20px;
-              font-weight:700;
-              color:#202124;
-              line-height:1.4;
-              margin-bottom:26px;
-            "
-          >
-            Regulatory updates for the week ending
-            ${escapeHtml(
-              weekEnding
-            )}
-          </div>
+</head>
 
-          ${
-            items
-              .map(
-                buildArticleHtml
-              )
-              .join("")
-          }
 
-          <div
-            style="
-              margin-top:28px;
-              padding-top:18px;
-              border-top:1px solid #dddddd;
-              font-size:12px;
-              line-height:1.6;
-              color:#777777;
-            "
-          >
-            This digest was generated automatically
-            by NorthAmTrack. Please refer to the
-            linked regulator publication for the
-            authoritative source.
-          </div>
+<body
+  style="
+    margin:0;
+    padding:0;
+    background:#f4f4f4;
+    font-family:Arial, Helvetica, sans-serif;
+  "
+>
 
-        </div>
 
-      </body>
+<div
+  style="
+    max-width:760px;
+    margin:0 auto;
+    background:#ffffff;
+    padding:36px;
+  "
+>
 
-    </html>
-  `;
+
+  <div
+    style="
+      font-size:26px;
+      font-weight:700;
+      color:#111111;
+      margin-bottom:5px;
+    "
+  >
+    NorthAmTrack
+  </div>
+
+
+  <div
+    style="
+      font-size:14px;
+      color:#777777;
+      margin-bottom:30px;
+    "
+  >
+    Regulatory Intelligence
+  </div>
+
+
+  <div
+    style="
+      font-size:20px;
+      font-weight:700;
+      color:#222222;
+      margin-bottom:8px;
+    "
+  >
+    Weekly Regulatory Digest
+  </div>
+
+
+  <div
+    style="
+      font-size:13px;
+      color:#777777;
+      margin-bottom:30px;
+    "
+  >
+    Week ending ${escapeHtml(weekEnding)}
+  </div>
+
+
+  ${articles}
+
+
+  <div
+    style="
+      margin-top:25px;
+      padding-top:18px;
+      border-top:1px solid #dddddd;
+      font-size:12px;
+      line-height:1.6;
+      color:#777777;
+    "
+  >
+
+    NorthAmTrack automatically compiles this
+    regulatory digest.
+
+    Please refer to the linked regulator
+    publication for the authoritative source.
+
+  </div>
+
+
+</div>
+
+
+</body>
+
+</html>
+`;
+}
+
+
+/* =========================================================
+   SEND EMAIL THROUGH RESEND
+========================================================= */
+
+async function sendEmail(items) {
+
+  const recipients =
+    WEEKLY_EMAIL_RECIPIENTS
+      .split(",")
+      .map(
+        email =>
+          email.trim()
+      )
+      .filter(Boolean);
+
+
+  if (
+    recipients.length === 0
+  ) {
+
+    throw new Error(
+      "No valid WEEKLY_EMAIL_RECIPIENTS found."
+    );
+  }
+
+
+  const weekEnding =
+    getWeekEndingLabel();
+
 
   const subject =
-    `NorthAmTrack – Regulatory updates for the week ending ${weekEnding}`;
+    `NorthAmTrack Weekly Regulatory Digest – ${weekEnding}`;
+
+
+  const html =
+    buildEmailHtml(
+      items
+    );
+
 
   console.log(
-    `Sending digest to ${recipients.length} recipient(s)...`
+    `\nSending digest to ${recipients.length} recipient(s)...`
   );
+
 
   const response =
     await fetch(
       "https://api.resend.com/emails",
       {
-        method:
-          "POST",
+
+        method: "POST",
 
         headers: {
+
           Authorization:
             `Bearer ${RESEND_API_KEY}`,
 
@@ -743,10 +930,12 @@ async function sendEmail(
             "application/json"
         },
 
+
         body:
           JSON.stringify({
+
             from:
-              "NorthAmTrack Regulatory Intelligence <digest@updates.northamtrack.in>",
+              "NorthAmTrack <digest@updates.northamtrack.in>",
 
             to:
               recipients,
@@ -758,18 +947,40 @@ async function sendEmail(
       }
     );
 
-  const result =
-    await response.json();
+
+  const rawResponse =
+    await response.text();
+
+
+  let result;
+
+
+  try {
+
+    result =
+      JSON.parse(rawResponse);
+
+  } catch {
+
+    result = {
+      raw:
+        rawResponse
+    };
+  }
+
 
   if (!response.ok) {
+
     throw new Error(
-      `Resend error: ${JSON.stringify(result)}`
+      `Resend error ${response.status}: ${JSON.stringify(result)}`
     );
   }
+
 
   console.log(
     "✓ Weekly digest sent successfully."
   );
+
 
   console.log(
     `Email ID: ${result.id}`
@@ -778,13 +989,15 @@ async function sendEmail(
 
 
 /* =========================================================
-   RUN
+   MAIN
 ========================================================= */
 
 async function run() {
+
   try {
+
     console.log(
-      "================================"
+      "\n=============================="
     );
 
     console.log(
@@ -792,44 +1005,97 @@ async function run() {
     );
 
     console.log(
-      "================================\n"
+      "==============================\n"
     );
+
 
     const items =
       await getWeeklyUpdates();
+
 
     console.log(
       `Found ${items.length} regulatory updates from the last 7 days.`
     );
 
+
     if (
       items.length === 0
     ) {
+
       console.log(
-        "No updates found. No email will be sent."
+        "No regulatory updates found."
+      );
+
+      console.log(
+        "No email will be sent."
       );
 
       return;
     }
 
+
     console.log(
-      "\nGenerating 60-word Groq summaries...\n"
+      "\nGenerating Groq summaries..."
     );
+
 
     const digestItems =
       await createDigestItems(
         items
       );
 
+
+    const successful =
+      digestItems.filter(
+        item =>
+          item.digest_summary !==
+          "Please review the official regulatory release for further information."
+      ).length;
+
+
+    const failed =
+      digestItems.length -
+      successful;
+
+
     console.log(
-      "\nSending weekly digest...\n"
+      "\nSummary generation complete."
     );
+
+    console.log(
+      `Successful: ${successful}`
+    );
+
+    console.log(
+      `Failed: ${failed}`
+    );
+
+
+    console.log(
+      "\nSending weekly digest..."
+    );
+
 
     await sendEmail(
       digestItems
     );
 
+
+    console.log(
+      "\n=============================="
+    );
+
+    console.log(
+      "DONE"
+    );
+
+    console.log(
+      "==============================\n"
+    );
+
+
   } catch (error) {
+
     console.error(
       "\nWeekly digest failed."
     );
