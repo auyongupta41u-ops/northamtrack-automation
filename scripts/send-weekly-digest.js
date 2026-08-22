@@ -300,12 +300,6 @@ async function callGroq(
       item.regulator
     );
 
-
-  /*
-    Reduced from 12,000 chars to 5,500.
-    This substantially lowers token usage.
-  */
-
   const sourceExcerpt =
     sourceText.slice(
       0,
@@ -414,10 +408,6 @@ STRICT RULES:
   }
 
 
-  /* =====================================================
-     RATE LIMIT RETRY
-  ===================================================== */
-
   if (
     response.status === 429
   ) {
@@ -429,14 +419,6 @@ STRICT RULES:
         `Groq rate limit still exceeded after ${MAX_RETRIES} retries.`
       );
     }
-
-    /*
-      Exponential delay:
-      retry 1 = 10 sec
-      retry 2 = 20 sec
-      retry 3 = 30 sec
-      retry 4 = 40 sec
-    */
 
     const waitSeconds =
       attempt * 10;
@@ -477,10 +459,6 @@ STRICT RULES:
   }
 
 
-  /* =====================================================
-     CLEAN OUTPUT
-  ===================================================== */
-
   summary =
     summary
       .replace(
@@ -509,10 +487,6 @@ STRICT RULES:
       )
       .trim();
 
-
-  /* =====================================================
-     HARD 60 WORD LIMIT
-  ===================================================== */
 
   const words =
     summary
@@ -633,14 +607,6 @@ async function createDigestItems(
       });
     }
 
-
-    /*
-      IMPORTANT:
-      Wait between successful article requests.
-
-      This keeps the free Groq account comfortably
-      below its tokens-per-minute limit.
-    */
 
     if (
       index <
@@ -793,14 +759,17 @@ function buildArticleHtml(
           For further information:
         </strong>
 
+        <br>
+
         <a
           href="${url}"
           style="
             color:#2457a7;
             text-decoration:underline;
+            word-break:break-all;
           "
         >
-          View official release
+          ${url}
         </a>
 
       </div>
