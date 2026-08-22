@@ -16,8 +16,15 @@ const WEEKLY_EMAIL_RECIPIENTS =
 const OPENAI_API_KEY =
   process.env.OPENAI_API_KEY;
 
+
+/* =========================================================
+   ENVIRONMENT CHECKS
+========================================================= */
+
 if (!SUPABASE_URL) {
-  throw new Error("SUPABASE_URL is missing.");
+  throw new Error(
+    "SUPABASE_URL is missing."
+  );
 }
 
 if (!SUPABASE_SERVICE_KEY) {
@@ -44,6 +51,11 @@ if (!OPENAI_API_KEY) {
   );
 }
 
+
+/* =========================================================
+   CLIENTS
+========================================================= */
+
 const supabase = createClient(
   SUPABASE_URL,
   SUPABASE_SERVICE_KEY
@@ -53,6 +65,10 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY
 });
 
+
+/* =========================================================
+   TEXT HELPERS
+========================================================= */
 
 function cleanText(value = "") {
   return String(value)
@@ -72,6 +88,11 @@ function escapeHtml(value = "") {
 }
 
 
+/*
+  Prevent duplicate regulator names such as:
+
+  Corporate insider pays BCSC... | BCSC | BCSC
+*/
 function cleanEmailTitle(
   title = "",
   regulator = ""
@@ -108,12 +129,17 @@ function cleanEmailTitle(
 }
 
 
+/* =========================================================
+   DATE HELPERS
+========================================================= */
+
 function formatDate(value) {
   if (!value) {
     return "";
   }
 
-  const date = new Date(value);
+  const date =
+    new Date(value);
 
   if (
     Number.isNaN(
@@ -126,10 +152,17 @@ function formatDate(value) {
   return new Intl.DateTimeFormat(
     "en-GB",
     {
-      timeZone: "Asia/Kolkata",
-      day: "2-digit",
-      month: "short",
-      year: "numeric"
+      timeZone:
+        "Asia/Kolkata",
+
+      day:
+        "2-digit",
+
+      month:
+        "short",
+
+      year:
+        "numeric"
     }
   ).format(date);
 }
@@ -139,23 +172,41 @@ function getWeekEndingLabel() {
   return new Intl.DateTimeFormat(
     "en-GB",
     {
-      timeZone: "Asia/Kolkata",
-      weekday: "long",
-      day: "2-digit",
-      month: "long",
-      year: "numeric"
+      timeZone:
+        "Asia/Kolkata",
+
+      weekday:
+        "long",
+
+      day:
+        "2-digit",
+
+      month:
+        "long",
+
+      year:
+        "numeric"
     }
   ).format(new Date());
 }
 
 
+/* =========================================================
+   FETCH WEEKLY UPDATES
+========================================================= */
+
 async function getWeeklyUpdates() {
-  const now = new Date();
+  const now =
+    new Date();
 
   const sevenDaysAgo =
     new Date(
       now.getTime() -
-      7 * 24 * 60 * 60 * 1000
+      7 *
+      24 *
+      60 *
+      60 *
+      1000
     );
 
   console.log(
@@ -176,7 +227,10 @@ async function getWeeklyUpdates() {
       regulator,
       is_active
     `)
-    .eq("is_active", true)
+    .eq(
+      "is_active",
+      true
+    )
     .gte(
       "published_date",
       sevenDaysAgo.toISOString()
@@ -200,6 +254,10 @@ async function getWeeklyUpdates() {
 }
 
 
+/* =========================================================
+   AI SUMMARY
+========================================================= */
+
 async function generateDigestSummary(
   item
 ) {
@@ -212,43 +270,118 @@ async function generateDigestSummary(
 
   const response =
     await openai.responses.create({
-      model: "gpt-4.1-mini",
+      model:
+        "gpt-4.1-mini",
 
       input: [
         {
-          role: "system",
-          content:
-            "You are a regulatory intelligence analyst. " +
-            "Write simple, neutral regulatory summaries in plain professional English. " +
-            "Paraphrase the source rather than copying sentences."
+          role:
+            "system",
+
+          content: `
+You are an analyst writing NorthAmTrack regulatory news summaries.
+
+Your job is to understand the source material and explain the regulatory development entirely in your own words.
+
+STRICT RULES:
+
+1. Write no more than 60 words.
+2. Completely paraphrase the source.
+3. Never reproduce a sentence from the source verbatim.
+4. Never reproduce a distinctive phrase from the source verbatim unless it is an unavoidable legal or regulatory term.
+5. Never use direct quotations.
+6. Never use quotation marks.
+7. Do not simply shorten or extract sentences from the article.
+8. Ignore website navigation, breadcrumbs, menus, page headings, dates, publication numbers, footer text and boilerplate.
+9. Explain the actual regulatory development clearly.
+10. State who or what is involved when relevant.
+11. Mention the main regulatory significance only when it is clear from the source.
+12. Use neutral, professional, plain English.
+13. Do not add facts that are not supported by the source.
+14. Do not include headings such as Summary, Why it matters, Action or Key takeaway.
+15. Do not include recommendations.
+16. Return only the finished summary.
+
+The summary must sound like an independent NorthAmTrack explanation, not copied regulator text.
+`
         },
         {
-          role: "user",
+          role:
+            "user",
+
           content:
-            `Regulator: ${item.regulator}\n` +
-            `Title: ${item.title}\n` +
-            `Article text: ${sourceText.slice(0, 12000)}\n\n` +
-            "Write a concise summary of no more than 60 words. " +
-            "Explain what happened, who was involved, and the key regulatory significance. " +
-            "Do not include headings. " +
-            "Do not quote the source. " +
-            "Do not copy website navigation, dates, labels, breadcrumbs or boilerplate. " +
-            "Do not include recommendations, actions, impact ratings or 'Why it matters'. " +
-            "Return only the summary."
+            `Regulator: ${cleanText(item.regulator)}\n` +
+            `Article title: ${cleanEmailTitle(
+              item.title,
+              item.regulator
+            )}\n\n` +
+            `SOURCE MATERIAL:\n${sourceText.slice(
+              0,
+              12000
+            )}\n\n` +
+            "Write an original NorthAmTrack summary of this development. " +
+            "Use entirely fresh wording and no more than 60 words. " +
+            "Do not quote or copy the source."
         }
       ],
 
-      max_output_tokens: 120
+      max_output_tokens:
+        140
     });
 
-  const summary =
+  let summary =
     cleanText(
       response.output_text
     );
 
+  /*
+    Safety net:
+    remove quotation marks if any appear.
+  */
+  summary =
+    summary
+      .replace(/[“”"]/g, "")
+      .replace(/[‘’]/g, "'")
+      .trim();
+
+  /*
+    Hard maximum of 60 words.
+  */
+  const words =
+    summary
+      .split(/\s+/)
+      .filter(Boolean);
+
+  if (
+    words.length > 60
+  ) {
+    summary =
+      words
+        .slice(0, 60)
+        .join(" ");
+
+    summary =
+      summary
+        .replace(
+          /[,:;–—-]+$/,
+          ""
+        )
+        .trim();
+
+    if (
+      !/[.!?]$/.test(summary)
+    ) {
+      summary += ".";
+    }
+  }
+
   return summary;
 }
 
+
+/* =========================================================
+   PREPARE DIGEST ITEMS
+========================================================= */
 
 async function createDigestItems(
   items
@@ -260,7 +393,8 @@ async function createDigestItems(
     index < items.length;
     index++
   ) {
-    const item = items[index];
+    const item =
+      items[index];
 
     console.log(
       `Generating summary ${
@@ -278,16 +412,18 @@ async function createDigestItems(
 
       results.push({
         ...item,
+
         title:
           cleanEmailTitle(
             item.title,
             item.regulator
           ),
+
         summary
       });
 
       console.log(
-        `✓ Summary generated`
+        "✓ Summary generated"
       );
 
     } catch (error) {
@@ -295,17 +431,21 @@ async function createDigestItems(
         `Summary generation failed for "${item.title}": ${error.message}`
       );
 
+      /*
+        If AI fails, do NOT dump the raw
+        full_text into the email.
+      */
       results.push({
         ...item,
+
         title:
           cleanEmailTitle(
             item.title,
             item.regulator
           ),
+
         summary:
-          cleanText(
-            item.summary
-          )
+          "Please review the official regulatory release for further information."
       });
     }
   }
@@ -314,15 +454,26 @@ async function createDigestItems(
 }
 
 
-function buildArticleHtml(item) {
+/* =========================================================
+   BUILD ARTICLE HTML
+========================================================= */
+
+function buildArticleHtml(
+  item
+) {
   const title =
     escapeHtml(
-      item.title
+      cleanEmailTitle(
+        item.title,
+        item.regulator
+      )
     );
 
   const regulator =
     escapeHtml(
-      item.regulator || ""
+      cleanText(
+        item.regulator
+      )
     );
 
   const date =
@@ -332,13 +483,17 @@ function buildArticleHtml(item) {
 
   const summary =
     escapeHtml(
-      item.summary ||
+      cleanText(
+        item.summary
+      ) ||
       "Please review the official regulatory release for further information."
     );
 
   const url =
     escapeHtml(
-      item.source_url
+      cleanText(
+        item.source_url
+      )
     );
 
   return `
@@ -359,21 +514,25 @@ function buildArticleHtml(item) {
           margin-bottom:10px;
         "
       >
-        ${title}${regulator ? ` | ${regulator}` : ""}
+        ${title}${
+          regulator
+            ? ` | ${regulator}`
+            : ""
+        }
       </div>
 
       ${
         date
           ? `
-          <div
-            style="
-              font-size:13px;
-              color:#666666;
-              margin-bottom:14px;
-            "
-          >
-            ${date}
-          </div>
+            <div
+              style="
+                font-size:13px;
+                color:#666666;
+                margin-bottom:14px;
+              "
+            >
+              ${date}
+            </div>
           `
           : ""
       }
@@ -392,6 +551,7 @@ function buildArticleHtml(item) {
       <div
         style="
           font-size:14px;
+          line-height:1.5;
         "
       >
         <strong>
@@ -414,6 +574,10 @@ function buildArticleHtml(item) {
 }
 
 
+/* =========================================================
+   SEND EMAIL
+========================================================= */
+
 async function sendEmail(
   items
 ) {
@@ -426,7 +590,9 @@ async function sendEmail(
       )
       .filter(Boolean);
 
-  if (!recipients.length) {
+  if (
+    recipients.length === 0
+  ) {
     throw new Error(
       "No valid email recipients configured."
     );
@@ -439,8 +605,12 @@ async function sendEmail(
     <!DOCTYPE html>
 
     <html>
+
       <head>
-        <meta charset="UTF-8" />
+        <meta
+          charset="UTF-8"
+        />
+
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1.0"
@@ -499,7 +669,9 @@ async function sendEmail(
             "
           >
             Regulatory updates for the week ending
-            ${escapeHtml(weekEnding)}
+            ${escapeHtml(
+              weekEnding
+            )}
           </div>
 
           ${
@@ -529,17 +701,23 @@ async function sendEmail(
         </div>
 
       </body>
+
     </html>
   `;
 
   const subject =
     `NorthAmTrack – Regulatory updates for the week ending ${weekEnding}`;
 
+  console.log(
+    `Sending digest to ${recipients.length} recipient(s)...`
+  );
+
   const response =
     await fetch(
       "https://api.resend.com/emails",
       {
-        method: "POST",
+        method:
+          "POST",
 
         headers: {
           Authorization:
@@ -583,6 +761,10 @@ async function sendEmail(
 }
 
 
+/* =========================================================
+   RUN
+========================================================= */
+
 async function run() {
   try {
     console.log(
@@ -604,7 +786,9 @@ async function run() {
       `Found ${items.length} regulatory updates from the last 7 days.`
     );
 
-    if (!items.length) {
+    if (
+      items.length === 0
+    ) {
       console.log(
         "No updates found. No email will be sent."
       );
@@ -612,10 +796,18 @@ async function run() {
       return;
     }
 
+    console.log(
+      "\nGenerating original 60-word summaries...\n"
+    );
+
     const digestItems =
       await createDigestItems(
         items
       );
+
+    console.log(
+      "\nSending weekly digest...\n"
+    );
 
     await sendEmail(
       digestItems
