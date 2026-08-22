@@ -37,7 +37,7 @@ if (!GROQ_API_KEY) {
 
 
 /* =========================================================
-   SUPABASE
+   CLIENT
 ========================================================= */
 
 const supabase = createClient(
@@ -47,7 +47,7 @@ const supabase = createClient(
 
 
 /* =========================================================
-   TEXT HELPERS
+   HELPERS
 ========================================================= */
 
 function cleanText(value = "") {
@@ -68,13 +68,27 @@ function escapeHtml(value = "") {
 }
 
 
+function sleep(ms) {
+  return new Promise(
+    (resolve) =>
+      setTimeout(resolve, ms)
+  );
+}
+
+
 /* =========================================================
    CLEAN TITLE
 ========================================================= */
 
-function cleanEmailTitle(title = "", regulator = "") {
-  let cleanedTitle = cleanText(title);
-  const cleanedRegulator = cleanText(regulator);
+function cleanEmailTitle(
+  title = "",
+  regulator = ""
+) {
+  let cleanedTitle =
+    cleanText(title);
+
+  const cleanedRegulator =
+    cleanText(regulator);
 
   if (!cleanedRegulator) {
     return cleanedTitle;
@@ -103,7 +117,7 @@ function cleanEmailTitle(title = "", regulator = "") {
 
 
 /* =========================================================
-   DATE FORMAT
+   DATES
 ========================================================= */
 
 function formatDate(value) {
@@ -111,19 +125,31 @@ function formatDate(value) {
     return "";
   }
 
-  const date = new Date(value);
+  const date =
+    new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
     return "";
   }
 
   return new Intl.DateTimeFormat(
     "en-GB",
     {
-      timeZone: "Asia/Kolkata",
-      day: "2-digit",
-      month: "short",
-      year: "numeric"
+      timeZone:
+        "Asia/Kolkata",
+
+      day:
+        "2-digit",
+
+      month:
+        "short",
+
+      year:
+        "numeric"
     }
   ).format(date);
 }
@@ -133,22 +159,30 @@ function getWeekEndingLabel() {
   return new Intl.DateTimeFormat(
     "en-GB",
     {
-      timeZone: "Asia/Kolkata",
-      day: "2-digit",
-      month: "short",
-      year: "numeric"
+      timeZone:
+        "Asia/Kolkata",
+
+      day:
+        "2-digit",
+
+      month:
+        "short",
+
+      year:
+        "numeric"
     }
   ).format(new Date());
 }
 
 
 /* =========================================================
-   FETCH LAST 7 DAYS FROM SUPABASE
+   FETCH WEEKLY UPDATES
 ========================================================= */
 
 async function getWeeklyUpdates() {
 
-  const now = new Date();
+  const now =
+    new Date();
 
   const sevenDaysAgo =
     new Date(
@@ -160,9 +194,14 @@ async function getWeeklyUpdates() {
     `Fetching updates since ${sevenDaysAgo.toISOString()}`
   );
 
-  const { data, error } =
+  const {
+    data,
+    error
+  } =
     await supabase
-      .from("regulatory_updates")
+      .from(
+        "regulatory_updates"
+      )
       .select(`
         title,
         summary,
@@ -174,7 +213,10 @@ async function getWeeklyUpdates() {
         category,
         is_active
       `)
-      .eq("is_active", true)
+      .eq(
+        "is_active",
+        true
+      )
       .gte(
         "published_date",
         sevenDaysAgo.toISOString()
@@ -199,43 +241,49 @@ async function getWeeklyUpdates() {
 
 
 /* =========================================================
-   CHOOSE BEST SOURCE TEXT
+   SOURCE TEXT
 ========================================================= */
 
 function getSourceText(item) {
 
   const fullText =
-    cleanText(item.full_text);
+    cleanText(
+      item.full_text
+    );
 
   const existingSummary =
-    cleanText(item.summary);
+    cleanText(
+      item.summary
+    );
 
-  /*
-    Prefer full article text.
-
-    If full text isn't available, use the
-    existing stored summary as context.
-
-    Title is the final fallback.
-  */
-
-  if (fullText.length > 100) {
+  if (
+    fullText.length > 100
+  ) {
     return fullText;
   }
 
-  if (existingSummary.length > 50) {
+  if (
+    existingSummary.length > 50
+  ) {
     return existingSummary;
   }
 
-  return cleanText(item.title);
+  return cleanText(
+    item.title
+  );
 }
 
 
 /* =========================================================
-   GROQ SUMMARY
+   GROQ REQUEST
 ========================================================= */
 
-async function generateDigestSummary(item) {
+async function callGroq(
+  item,
+  attempt = 1
+) {
+
+  const MAX_RETRIES = 4;
 
   const sourceText =
     getSourceText(item);
@@ -252,6 +300,19 @@ async function generateDigestSummary(item) {
       item.regulator
     );
 
+
+  /*
+    Reduced from 12,000 chars to 5,500.
+    This substantially lowers token usage.
+  */
+
+  const sourceExcerpt =
+    sourceText.slice(
+      0,
+      5500
+    );
+
+
   const prompt = `
 You are preparing a short regulatory news summary for NorthAmTrack.
 
@@ -262,57 +323,28 @@ REGULATOR:
 ${regulator}
 
 SOURCE MATERIAL:
-${sourceText.slice(0, 12000)}
+${sourceExcerpt}
 
 TASK:
 
-Read and understand the source material.
-
-Write ONE concise factual paragraph explaining the regulatory development in your own words.
+Write ONE concise factual paragraph explaining the regulatory development entirely in your own words.
 
 STRICT RULES:
 
-1. Maximum 60 words.
-
-2. Rewrite the information entirely in your own words.
-
-3. Do NOT copy sentences from the source.
-
-4. Do NOT reproduce quotations.
-
-5. Do NOT use quotation marks.
-
-6. Do NOT reproduce website navigation text such as:
-   Home
-   News
-   About
-   Breadcrumbs
-   Menu labels
-   Page headings
-
-7. Do NOT start with phrases such as:
-   "This article says"
-   "The release states"
-   "According to the article"
-   "Please review"
-   "For further information"
-
-8. Do NOT include a heading.
-
-9. Do NOT repeat the article title.
-
-10. Do NOT give legal advice.
-
-11. Do NOT invent information.
-
-12. Focus on:
-    - what happened;
-    - who or what is affected;
-    - the main regulatory development.
-
-13. Use clear professional English understandable by a legal or compliance professional.
-
-Return ONLY the final summary paragraph.
+- Maximum 60 words.
+- Do not copy sentences from the source.
+- Do not use direct quotations.
+- Do not use quotation marks.
+- Ignore navigation, breadcrumbs, menus, page labels, publication numbers and boilerplate.
+- Do not repeat the title.
+- Do not include headings.
+- Do not include recommendations.
+- Do not include "Why it matters".
+- Do not invent facts.
+- Explain what happened and who or what is involved.
+- Mention the main regulatory point where clear.
+- Use neutral professional English.
+- Return only the final summary paragraph.
 `;
 
 
@@ -330,36 +362,36 @@ Return ONLY the final summary paragraph.
             "application/json"
         },
 
-        body: JSON.stringify({
+        body:
+          JSON.stringify({
+            model:
+              "openai/gpt-oss-20b",
 
-          model:
-            "openai/gpt-oss-20b",
+            messages: [
+              {
+                role:
+                  "user",
 
-          messages: [
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
+                content:
+                  prompt
+              }
+            ],
 
-          /*
-            Important for GPT-OSS on Groq:
-            don't return reasoning.
-          */
-          include_reasoning: false,
+            include_reasoning:
+              false,
 
-          /*
-            Summarization is straightforward,
-            so low reasoning is enough.
-          */
-          reasoning_effort: "low",
+            reasoning_effort:
+              "low",
 
-          temperature: 0.3,
+            temperature:
+              0.3,
 
-          max_completion_tokens: 250,
+            max_completion_tokens:
+              180,
 
-          stream: false
-        })
+            stream:
+              false
+          })
       }
     );
 
@@ -371,29 +403,65 @@ Return ONLY the final summary paragraph.
   let result;
 
   try {
-
     result =
-      JSON.parse(rawResponse);
-
-  } catch (error) {
-
+      JSON.parse(
+        rawResponse
+      );
+  } catch {
     throw new Error(
       `Groq returned invalid JSON: ${rawResponse.slice(0, 500)}`
     );
   }
 
 
-  if (!response.ok) {
+  /* =====================================================
+     RATE LIMIT RETRY
+  ===================================================== */
 
+  if (
+    response.status === 429
+  ) {
+
+    if (
+      attempt > MAX_RETRIES
+    ) {
+      throw new Error(
+        `Groq rate limit still exceeded after ${MAX_RETRIES} retries.`
+      );
+    }
+
+    /*
+      Exponential delay:
+      retry 1 = 10 sec
+      retry 2 = 20 sec
+      retry 3 = 30 sec
+      retry 4 = 40 sec
+    */
+
+    const waitSeconds =
+      attempt * 10;
+
+    console.log(
+      `⚠ Groq rate limit reached. Waiting ${waitSeconds} seconds before retry ${attempt}/${MAX_RETRIES}...`
+    );
+
+    await sleep(
+      waitSeconds * 1000
+    );
+
+    return callGroq(
+      item,
+      attempt + 1
+    );
+  }
+
+
+  if (!response.ok) {
     throw new Error(
       `Groq API ${response.status}: ${rawResponse.slice(0, 1000)}`
     );
   }
 
-
-  /*
-    Get final answer
-  */
 
   let summary =
     cleanText(
@@ -402,31 +470,7 @@ Return ONLY the final summary paragraph.
     );
 
 
-  /*
-    Debugging information if Groq
-    unexpectedly gives no final answer.
-  */
-
   if (!summary) {
-
-    console.error(
-      "Groq returned no content."
-    );
-
-    console.error(
-      "Finish reason:",
-      result?.choices?.[0]
-        ?.finish_reason
-    );
-
-    console.error(
-      "Response:",
-      JSON.stringify(result).slice(
-        0,
-        2000
-      )
-    );
-
     throw new Error(
       "Groq returned an empty final summary."
     );
@@ -434,33 +478,41 @@ Return ONLY the final summary paragraph.
 
 
   /* =====================================================
-     CLEAN GROQ OUTPUT
+     CLEAN OUTPUT
   ===================================================== */
 
   summary =
     summary
-      .replace(/^summary\s*:\s*/i, "")
-      .replace(/^final summary\s*:\s*/i, "")
-      .replace(/[“”"]/g, "")
-      .replace(/[‘’]/g, "'")
-      .replace(/\s+/g, " ")
+      .replace(
+        /^summary\s*:\s*/i,
+        ""
+      )
+      .replace(
+        /^final summary\s*:\s*/i,
+        ""
+      )
+      .replace(
+        /[“”"]/g,
+        ""
+      )
+      .replace(
+        /[‘’]/g,
+        "'"
+      )
+      .replace(
+        /^[•\-–—]\s*/,
+        ""
+      )
+      .replace(
+        /\s+/g,
+        " "
+      )
       .trim();
 
 
-  /*
-    Remove bullet if model adds one.
-  */
-
-  summary =
-    summary.replace(
-      /^[•\-–—]\s*/,
-      ""
-    );
-
-
-  /*
-    HARD 60 WORD LIMIT
-  */
+  /* =====================================================
+     HARD 60 WORD LIMIT
+  ===================================================== */
 
   const words =
     summary
@@ -468,11 +520,16 @@ Return ONLY the final summary paragraph.
       .filter(Boolean);
 
 
-  if (words.length > 60) {
+  if (
+    words.length > 60
+  ) {
 
     summary =
       words
-        .slice(0, 60)
+        .slice(
+          0,
+          60
+        )
         .join(" ")
         .replace(
           /[,:;–—-]+$/,
@@ -481,7 +538,9 @@ Return ONLY the final summary paragraph.
         .trim();
 
     if (
-      !/[.!?]$/.test(summary)
+      !/[.!?]$/.test(
+        summary
+      )
     ) {
       summary += ".";
     }
@@ -496,7 +555,9 @@ Return ONLY the final summary paragraph.
    GENERATE ALL SUMMARIES
 ========================================================= */
 
-async function createDigestItems(items) {
+async function createDigestItems(
+  items
+) {
 
   const results = [];
 
@@ -519,7 +580,7 @@ async function createDigestItems(items) {
     try {
 
       const summary =
-        await generateDigestSummary(
+        await callGroq(
           item
         );
 
@@ -527,7 +588,6 @@ async function createDigestItems(items) {
       console.log(
         "✓ Groq summary generated"
       );
-
 
       console.log(
         `  ${summary}`
@@ -559,11 +619,6 @@ async function createDigestItems(items) {
       );
 
 
-      /*
-        We deliberately DO NOT put raw scraped
-        text into the email if AI fails.
-      */
-
       results.push({
         ...item,
 
@@ -577,6 +632,29 @@ async function createDigestItems(items) {
           "Please review the official regulatory release for further information."
       });
     }
+
+
+    /*
+      IMPORTANT:
+      Wait between successful article requests.
+
+      This keeps the free Groq account comfortably
+      below its tokens-per-minute limit.
+    */
+
+    if (
+      index <
+      items.length - 1
+    ) {
+
+      console.log(
+        "Waiting 6 seconds before next article..."
+      );
+
+      await sleep(
+        6000
+      );
+    }
   }
 
 
@@ -585,10 +663,12 @@ async function createDigestItems(items) {
 
 
 /* =========================================================
-   BUILD EACH EMAIL ARTICLE
+   ARTICLE HTML
 ========================================================= */
 
-function buildArticleHtml(item) {
+function buildArticleHtml(
+  item
+) {
 
   const title =
     escapeHtml(
@@ -630,11 +710,6 @@ function buildArticleHtml(item) {
       )
     );
 
-
-  /*
-    If regulator is already present at
-    the end of title, don't duplicate it.
-  */
 
   let displayTitle =
     title;
@@ -736,10 +811,12 @@ function buildArticleHtml(item) {
 
 
 /* =========================================================
-   BUILD EMAIL
+   EMAIL HTML
 ========================================================= */
 
-function buildEmailHtml(items) {
+function buildEmailHtml(
+  items
+) {
 
   const weekEnding =
     getWeekEndingLabel();
@@ -832,7 +909,9 @@ function buildEmailHtml(items) {
       margin-bottom:30px;
     "
   >
-    Week ending ${escapeHtml(weekEnding)}
+    Week ending ${escapeHtml(
+      weekEnding
+    )}
   </div>
 
 
@@ -850,11 +929,8 @@ function buildEmailHtml(items) {
     "
   >
 
-    NorthAmTrack automatically compiles this
-    regulatory digest.
-
-    Please refer to the linked regulator
-    publication for the authoritative source.
+    NorthAmTrack automatically compiles this regulatory digest.
+    Please refer to the linked regulator publication for the authoritative source.
 
   </div>
 
@@ -870,10 +946,12 @@ function buildEmailHtml(items) {
 
 
 /* =========================================================
-   SEND EMAIL THROUGH RESEND
+   SEND THROUGH RESEND
 ========================================================= */
 
-async function sendEmail(items) {
+async function sendEmail(
+  items
+) {
 
   const recipients =
     WEEKLY_EMAIL_RECIPIENTS
@@ -888,7 +966,6 @@ async function sendEmail(items) {
   if (
     recipients.length === 0
   ) {
-
     throw new Error(
       "No valid WEEKLY_EMAIL_RECIPIENTS found."
     );
@@ -919,7 +996,8 @@ async function sendEmail(items) {
       "https://api.resend.com/emails",
       {
 
-        method: "POST",
+        method:
+          "POST",
 
         headers: {
 
@@ -956,12 +1034,11 @@ async function sendEmail(items) {
 
 
   try {
-
     result =
-      JSON.parse(rawResponse);
-
+      JSON.parse(
+        rawResponse
+      );
   } catch {
-
     result = {
       raw:
         rawResponse
@@ -970,7 +1047,6 @@ async function sendEmail(items) {
 
 
   if (!response.ok) {
-
     throw new Error(
       `Resend error ${response.status}: ${JSON.stringify(result)}`
     );
