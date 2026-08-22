@@ -1,0 +1,34 @@
+name: NorthAmTrack Weekly Digest Draft
+
+on:
+  schedule:
+    # Every Friday at 9:00 AM IST
+    # 09:00 IST = 03:30 UTC
+    - cron: "30 3 * * 5"
+
+  # Keep manual trigger available for testing
+  workflow_dispatch:
+
+jobs:
+  prepare-weekly-digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Prepare weekly digest draft
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: node scripts/prepare-weekly-digest.js
