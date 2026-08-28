@@ -33,6 +33,7 @@ function convertToISODate(value) {
   }
 
   const maximumAllowedDate = new Date();
+
   maximumAllowedDate.setDate(
     maximumAllowedDate.getDate() + 1
   );
@@ -59,10 +60,12 @@ function convertToISODate(value) {
 }
 
 function determineCategory(title = "") {
-  const lowerTitle = title.toLowerCase();
+  const lowerTitle =
+    title.toLowerCase();
 
   if (
     lowerTitle.includes("investor alert") ||
+    lowerTitle.includes("consumer alert") ||
     lowerTitle.includes("fraud") ||
     lowerTitle.includes("scam") ||
     lowerTitle.includes("sanction") ||
@@ -76,6 +79,7 @@ function determineCategory(title = "") {
   if (
     lowerTitle.includes("consultation") ||
     lowerTitle.includes("proposal") ||
+    lowerTitle.includes("proposes") ||
     lowerTitle.includes("guidance") ||
     lowerTitle.includes("amendment") ||
     lowerTitle.includes("notice")
@@ -86,11 +90,15 @@ function determineCategory(title = "") {
   return "news";
 }
 
-function determineImpactRating(title = "") {
-  const lowerTitle = title.toLowerCase();
+function determineImpactRating(
+  title = ""
+) {
+  const lowerTitle =
+    title.toLowerCase();
 
   if (
     lowerTitle.includes("investor alert") ||
+    lowerTitle.includes("consumer alert") ||
     lowerTitle.includes("fraud") ||
     lowerTitle.includes("scam") ||
     lowerTitle.includes("penalty") ||
@@ -121,9 +129,13 @@ function determineMutualFundRelevance(
   if (
     combined.includes("mutual fund") ||
     combined.includes("investment fund") ||
-    combined.includes("exchange-traded fund") ||
+    combined.includes(
+      "exchange-traded fund"
+    ) ||
     combined.includes("etf") ||
-    combined.includes("portfolio manager") ||
+    combined.includes(
+      "portfolio manager"
+    ) ||
     combined.includes("fund manager") ||
     combined.includes("asset manager")
   ) {
@@ -164,151 +176,191 @@ async function configurePage(page) {
 
 async function collectReleaseLinks(page) {
   console.log(
-    "Opening FCAA news releases page..."
+    "Opening official FCAA News Releases page..."
   );
 
-  await page.goto(NEWS_URL, {
-    waitUntil: "networkidle2",
-    timeout: 90000
-  });
+  await page.goto(
+    NEWS_URL,
+    {
+      waitUntil: "networkidle2",
+      timeout: 90000
+    }
+  );
 
   await new Promise((resolve) => {
     setTimeout(resolve, 3000);
   });
 
-  console.log("FCAA page loaded.");
+  console.log(
+    "FCAA News Releases page loaded."
+  );
 
-  const releases = await page.evaluate(() => {
-    const seen = new Set();
+  const releases =
+    await page.evaluate(() => {
+      const clean = (value = "") =>
+        String(value)
+          .replace(/\u00a0/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
 
-    const clean = (value = "") =>
-      String(value)
-        .replace(/\u00a0/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+      const dateRegex =
+        /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2},\s+\d{4}\b/i;
 
-    return Array.from(
-      document.querySelectorAll("a[href]")
-    )
-      .map((link) => {
-        const container =
-          link.closest("article") ||
-          link.closest("li") ||
-          link.closest("div");
+      const seen =
+        new Set();
 
-        const containerText =
-          clean(
-            container?.innerText ||
-            container?.textContent
-          );
+      const results = [];
 
-        const dateElement =
-          container?.querySelector("time") ||
-          container?.querySelector(
-            '[class*="date"]'
-          );
+      const links =
+        Array.from(
+          document.querySelectorAll(
+            "a[href]"
+          )
+        );
 
-        let listingDate =
-          dateElement?.getAttribute(
-            "datetime"
-          ) ||
-          clean(
-            dateElement?.textContent
-          );
+      for (const link of links) {
+        const title =
+          clean(link.textContent);
 
-        if (!listingDate) {
-          const dateMatch =
-            containerText.match(
-              /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}\b/i
-            );
-
-          if (dateMatch) {
-            listingDate =
-              dateMatch[0];
-          }
-        }
-
-        return {
-          title:
-            clean(link.textContent),
-
-          source_url:
-            link.href,
-
-          listing_date:
-            listingDate
-        };
-      })
-      .filter((item) => {
         if (
-          !item.title ||
-          item.title.length < 15
+          !title ||
+          title.length < 20
         ) {
-          return false;
+          continue;
         }
 
         let url;
 
         try {
-          url = new URL(
-            item.source_url
-          );
+          url =
+            new URL(link.href);
         } catch {
-          return false;
+          continue;
         }
 
-        const pathname =
-          url.pathname.toLowerCase();
-
-        const isFCAA =
+        /*
+         * Current FCAA news releases link
+         * to Government of Saskatchewan
+         * News and Media pages.
+         */
+        const host =
           url.hostname
-            .toLowerCase()
-            .includes("fcaa.gov.sk.ca");
+            .toLowerCase();
 
-        const isListingPage =
-          pathname ===
-            "/whats-new/fcaa-news-releases" ||
-          pathname ===
-            "/whats-new/fcaa-news-releases/";
+        const path =
+          url.pathname
+            .toLowerCase();
+
+        const validHost =
+          host ===
+            "www.saskatchewan.ca" ||
+          host ===
+            "saskatchewan.ca";
+
+        const validArticlePath =
+          path.startsWith(
+            "/government/news-and-media/"
+          );
 
         if (
-          !isFCAA ||
-          isListingPage ||
-          seen.has(item.source_url)
+          !validHost ||
+          !validArticlePath
         ) {
-          return false;
+          continue;
+        }
+
+        /*
+         * Confirm that this link appears
+         * beside a publication date on
+         * the FCAA News Releases page.
+         */
+        let container =
+          link.parentElement;
+
+        let listingDate = "";
+
+        let attempts = 0;
+
+        while (
+          container &&
+          attempts < 5
+        ) {
+          const text =
+            clean(
+              container.innerText ||
+              container.textContent
+            );
+
+          const match =
+            text.match(dateRegex);
+
+          if (match) {
+            listingDate =
+              match[0];
+            break;
+          }
+
+          container =
+            container.parentElement;
+
+          attempts++;
+        }
+
+        /*
+         * No date nearby means this is
+         * probably navigation/footer content,
+         * not a release listed by FCAA.
+         */
+        if (!listingDate) {
+          continue;
+        }
+
+        const normalizedUrl =
+          url.href.split("#")[0];
+
+        if (
+          seen.has(normalizedUrl)
+        ) {
+          continue;
         }
 
         seen.add(
-          item.source_url
+          normalizedUrl
         );
 
-        return true;
-      });
-  });
+        results.push({
+          title,
+          source_url:
+            normalizedUrl,
+          listing_date:
+            listingDate
+        });
+      }
+
+      return results;
+    });
 
   console.log(
-    `Found ${releases.length} possible FCAA articles.`
+    `Found ${releases.length} FCAA news releases.`
   );
 
   releases
     .slice(0, MAX_ARTICLES)
-    .forEach((release, index) => {
-      console.log(
-        `${index + 1}. ${release.title}`
-      );
+    .forEach(
+      (release, index) => {
+        console.log(
+          `\n${index + 1}. ${release.title}`
+        );
 
-      console.log(
-        `Date: ${
-          release.listing_date ||
-          "Not found"
-        }`
-      );
+        console.log(
+          `Date: ${release.listing_date}`
+        );
 
-      console.log(
-        release.source_url
-      );
-    });
+        console.log(
+          release.source_url
+        );
+      }
+    );
 
   return releases.slice(
     0,
@@ -327,99 +379,94 @@ async function extractArticle(
   await page.goto(
     release.source_url,
     {
-      waitUntil: "networkidle2",
+      waitUntil:
+        "networkidle2",
       timeout: 90000
     }
   );
 
-  await new Promise((resolve) => {
-    setTimeout(resolve, 2000);
-  });
+  await new Promise(
+    (resolve) => {
+      setTimeout(
+        resolve,
+        2000
+      );
+    }
+  );
 
   const extracted =
     await page.evaluate(() => {
-      const clean = (value = "") =>
-        String(value)
-          .replace(/\u00a0/g, " ")
-          .replace(/\s+/g, " ")
-          .trim();
-
-      const excludedHeadings =
-        new Set([
-          "financial and consumer affairs authority",
-          "fcaa news releases",
-          "what's new",
-          "news",
-          "contact us"
-        ]);
-
-      const headingCandidates =
-        Array.from(
-          document.querySelectorAll(
-            "main h1, main h2, article h1, article h2, .content h1, .content h2"
-          )
-        )
-          .map((heading) =>
-            clean(
-              heading.textContent
+      const clean =
+        (value = "") =>
+          String(value)
+            .replace(
+              /\u00a0/g,
+              " "
             )
-          )
-          .filter((heading) => {
-            const lower =
-              heading.toLowerCase();
+            .replace(
+              /\s+/g,
+              " "
+            )
+            .trim();
 
-            return (
-              heading.length >= 15 &&
-              !excludedHeadings.has(
-                lower
-              )
-            );
-          });
+      const h1 =
+        clean(
+          document.querySelector(
+            "h1"
+          )?.textContent
+        );
 
       const title =
-        headingCandidates[0] || "";
+        h1 || "";
 
       let publishedDate = "";
 
-      const metadataDate =
-        document.querySelector(
-          'meta[property="article:published_time"]'
-        ) ||
-        document.querySelector(
-          'meta[name="date"]'
-        ) ||
-        document.querySelector(
-          'meta[name="publication_date"]'
+      /*
+       * Government of Saskatchewan
+       * pages display:
+       * "Released on August 5, 2026"
+       */
+      const bodyText =
+        clean(
+          document.body
+            ?.innerText
         );
 
-      if (metadataDate) {
+      const releasedMatch =
+        bodyText.match(
+          /Released on\s+((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4})/i
+        );
+
+      if (releasedMatch) {
         publishedDate =
-          metadataDate.getAttribute(
-            "content"
-          ) || "";
+          releasedMatch[1];
       }
 
       if (!publishedDate) {
-        const visibleDate =
+        const metaDate =
           document.querySelector(
-            "time"
+            'meta[property="article:published_time"]'
           ) ||
           document.querySelector(
-            '[class*="date"]'
+            'meta[name="date"]'
+          ) ||
+          document.querySelector(
+            'meta[name="publication_date"]'
           );
 
-        if (visibleDate) {
+        if (metaDate) {
           publishedDate =
-            visibleDate.getAttribute(
-              "datetime"
-            ) ||
-            clean(
-              visibleDate.textContent
-            );
+            metaDate.getAttribute(
+              "content"
+            ) || "";
         }
       }
 
-      const removableSelectors = [
+      /*
+       * Remove website navigation before
+       * extracting substantive article text.
+       */
+      [
         "script",
         "style",
         "nav",
@@ -434,80 +481,68 @@ async function extractArticle(
         ".menu",
         ".sidebar",
         ".social-share"
-      ];
-
-      document
-        .querySelectorAll(
-          removableSelectors.join(",")
-        )
-        .forEach((element) => {
-          element.remove();
-        });
-
-      const candidateTexts = [];
-
-      [
-        "article",
-        "main article",
-        ".article-content",
-        ".content",
-        ".content-body",
-        ".page-content",
-        "main"
-      ].forEach((selector) => {
-        document
-          .querySelectorAll(selector)
-          .forEach((element) => {
-            const text =
-              clean(
-                element.innerText ||
-                element.textContent
-              );
-
-            if (
-              text.length >= 250
-            ) {
-              candidateTexts.push(
-                text
-              );
-            }
-          });
-      });
-
-      const paragraphText =
-        Array.from(
-          document.querySelectorAll("p")
-        )
-          .map((paragraph) =>
-            clean(
-              paragraph.textContent
+      ].forEach(
+        (selector) => {
+          document
+            .querySelectorAll(
+              selector
             )
+            .forEach(
+              (element) => {
+                element.remove();
+              }
+            );
+        }
+      );
+
+      const paragraphs =
+        Array.from(
+          document.querySelectorAll(
+            "main p, article p"
+          )
+        )
+          .map(
+            (paragraph) =>
+              clean(
+                paragraph
+                  .textContent
+              )
           )
           .filter(
-            (paragraph) =>
-              paragraph.length >= 30
-          )
-          .join(" ");
+            (text) =>
+              text.length >= 25
+          );
 
+      let fullText =
+        paragraphs.join(" ");
+
+      /*
+       * Fallback if the page structure changes.
+       */
       if (
-        paragraphText.length >= 250
+        fullText.length < 200
       ) {
-        candidateTexts.push(
-          paragraphText
-        );
-      }
+        const main =
+          document.querySelector(
+            "main"
+          ) ||
+          document.querySelector(
+            "article"
+          );
 
-      candidateTexts.sort(
-        (a, b) =>
-          b.length - a.length
-      );
+        fullText =
+          clean(
+            main?.innerText ||
+            main?.textContent
+          );
+      }
 
       return {
         title,
         published_date:
           publishedDate,
         full_text:
-          candidateTexts[0] || ""
+          fullText
       };
     });
 
@@ -521,20 +556,11 @@ async function extractArticle(
       release.title
     );
 
-  const invalidTitles =
-    new Set([
-      "",
-      "financial and consumer affairs authority",
-      "fcaa news releases",
-      "what's new"
-    ]);
-
   const title =
-    invalidTitles.has(
-      extractedTitle.toLowerCase()
-    )
-      ? listingTitle
-      : extractedTitle;
+    extractedTitle &&
+    extractedTitle.length >= 15
+      ? extractedTitle
+      : listingTitle;
 
   const fullText =
     cleanText(
@@ -588,12 +614,17 @@ async function run() {
     );
 
     console.log(
+      "Official FCAA News Releases only"
+    );
+
+    console.log(
       "================================\n"
     );
 
     browser =
       await puppeteer.launch({
         headless: true,
+
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
@@ -617,7 +648,7 @@ async function run() {
       releases.length === 0
     ) {
       throw new Error(
-        "No FCAA article links were found."
+        "No FCAA news releases were found."
       );
     }
 
@@ -632,7 +663,8 @@ async function run() {
 
     for (
       let index = 0;
-      index < releases.length;
+      index <
+      releases.length;
       index++
     ) {
       const release =
@@ -641,7 +673,9 @@ async function run() {
       console.log(
         `\nProcessing FCAA article ${
           index + 1
-        } of ${releases.length}`
+        } of ${
+          releases.length
+        }`
       );
 
       try {
