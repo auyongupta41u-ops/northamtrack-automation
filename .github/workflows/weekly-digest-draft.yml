@@ -38,3 +38,11 @@ jobs:
             output/weekly-digest-draft.html
             output/weekly-digest-draft.json
           retention-days: 14
+      - name: Send weekly regulatory digest
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          WEEKLY_EMAIL_RECIPIENTS: ${{ secrets.WEEKLY_EMAIL_RECIPIENTS }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: node scripts/send-weekly-digest.js
