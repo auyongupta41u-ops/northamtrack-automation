@@ -1000,7 +1000,53 @@ Return exactly this JSON structure:
 // ========================================================
 // SUPABASE UPSERT
 // ========================================================
+// ========================================================
+// CHECK WHETHER DECISION IS ALREADY ANALYZED
+// ========================================================
 
+async function getExistingDecision(sourceUrl) {
+  const encodedUrl = encodeURIComponent(sourceUrl);
+
+  const endpoint =
+    `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}` +
+    `?source_url=eq.${encodedUrl}` +
+    `&select=id,source_url,analysis_status,ai_summary,headnote`;
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+
+    headers: {
+      apikey: SUPABASE_KEY,
+
+      Authorization:
+        `Bearer ${SUPABASE_KEY}`,
+
+      Accept:
+        "application/json"
+    }
+  });
+
+  if (!response.ok) {
+    const errorText =
+      await response.text();
+
+    throw new Error(
+      `Supabase lookup HTTP ${response.status}: ${errorText}`
+    );
+  }
+
+  const rows =
+    await response.json();
+
+  if (
+    !Array.isArray(rows) ||
+    rows.length === 0
+  ) {
+    return null;
+  }
+
+  return rows[0];
+}
 async function upsertDecision(record) {
   const endpoint =
     `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}` +
