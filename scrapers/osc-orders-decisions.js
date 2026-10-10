@@ -300,26 +300,60 @@ if (records.length === 0) {
         ? Array.from(row.querySelectorAll("td"))
         : [];
 
-      unique.set(link.href, {
-        published_date_text:
-          tidy(cells[0]?.innerText),
+     /*
+ * Recover metadata from the closest surrounding
+ * OSC result container when normal table rows
+ * are not available.
+ */
 
-        title,
+const container =
+  link.closest("tr") ||
+  link.closest("article") ||
+  link.closest(".views-row") ||
+  link.closest(".search-result") ||
+  link.parentElement?.parentElement ||
+  link.parentElement;
 
-        source_url:
-          link.href,
+const containerText =
+  tidy(container?.innerText) || "";
 
-        instrument:
-          tidy(cells[2]?.innerText),
+/*
+ * OSC dates normally appear in formats such as:
+ * October 8, 2026
+ * Oct 8, 2026
+ * 2026-10-08
+ */
 
-        document_type:
-          tidy(cells[3]?.innerText),
+const dateMatch =
+  containerText.match(
+    /\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+\d{1,2},\s+\d{4}\b/i
+  ) ||
+  containerText.match(
+    /\b\d{4}-\d{2}-\d{2}\b/
+  );
 
-        related_to:
-          tidy(cells[4]?.innerText)
-      });
-    }
-  });
+const publishedDate =
+  tidy(cells[0]?.innerText) ||
+  (dateMatch ? tidy(dateMatch[0]) : null);
+
+unique.set(link.href, {
+  published_date_text:
+    publishedDate,
+
+  title,
+
+  source_url:
+    link.href,
+
+  instrument:
+    tidy(cells[2]?.innerText),
+
+  document_type:
+    tidy(cells[3]?.innerText),
+
+  related_to:
+    tidy(cells[4]?.innerText)
+});
 
   return {
     records:
