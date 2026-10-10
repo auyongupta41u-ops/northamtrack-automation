@@ -354,7 +354,8 @@ unique.set(link.href, {
   related_to:
     tidy(cells[4]?.innerText)
 });
-
+   }
+  });
   return {
     records:
       Array.from(unique.values()),
