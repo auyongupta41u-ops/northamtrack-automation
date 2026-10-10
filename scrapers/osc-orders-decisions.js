@@ -1182,6 +1182,68 @@ async function processDecision(
   total
 ) {
   /*
+   * STEP 0
+   * Check whether this decision has already been
+   * successfully analyzed in Supabase.
+   */
+
+  try {
+    const existing =
+      await getExistingDecision(
+        record.source_url
+      );
+
+    if (
+      existing &&
+      existing.analysis_status === "ANALYZED" &&
+      existing.ai_summary
+    ) {
+      console.log("\n--------------------------------------------------");
+      console.log(
+        `[${index}/${total}] ${record.title}`
+      );
+      console.log("--------------------------------------------------");
+
+      console.log(
+        "Already analyzed in Supabase — skipping OSC page and Groq."
+      );
+
+      return {
+        ...record,
+
+        headnote:
+          existing.headnote || null,
+
+        ai_summary:
+          existing.ai_summary,
+
+        analysis_status:
+          "ANALYZED",
+
+        database_status:
+          "SKIPPED_EXISTING",
+
+        skipped_existing:
+          true
+      };
+    }
+  } catch (error) {
+    /*
+     * A lookup failure should NOT stop collection.
+     * Continue with normal extraction and analysis.
+     */
+
+    console.error(
+      "Supabase pre-check failed:",
+      error.message
+    );
+
+    console.log(
+      "Continuing with normal OSC extraction and AI analysis."
+    );
+  }
+
+  /*
    * STEP 1
    * Extract official OSC content.
    */
@@ -1221,9 +1283,14 @@ async function processDecision(
 
     return {
       ...completed,
+
       database_status:
-        "SAVED"
+        "SAVED",
+
+      skipped_existing:
+        false
     };
+
   } catch (error) {
     console.error(
       "Supabase write failed:",
@@ -1232,11 +1299,15 @@ async function processDecision(
 
     return {
       ...completed,
+
       database_status:
         "DATABASE_ERROR",
 
       database_error:
-        error.message
+        error.message,
+
+      skipped_existing:
+        false
     };
   }
 }
