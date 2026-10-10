@@ -234,24 +234,133 @@ async function extractListingPage(page, pageNumber) {
       })
       .filter(Boolean);
 
-    return {
-      records,
-      tableRowsFound: rows.length
-    };
+    /*
+ * FALLBACK:
+ * OSC does not always expose the listing as normal
+ * table rows to Puppeteer/GitHub Actions.
+ *
+ * If table extraction returns no records, collect
+ * decision links directly from the page.
+ */
+
+if (records.length === 0) {
+  const links = Array.from(
+    document.querySelectorAll(
+      'a[href*="/securities-law/orders-rulings-decisions/"]'
+    )
+  );
+
+  const unique = new Map();
+
+  links.forEach((link) => {
+    const title = tidy(link.innerText);
+
+    if (!title || !link.href) {
+      return;
+    }
+
+    /*
+     * Exclude navigation/anchor links and retain only
+     * actual individual OSC decision pages.
+     */
+
+    try {
+      const url = new URL(link.href);
+
+      const path = url.pathname.replace(/\/+$/, "");
+
+      if (
+        path ===
+        "/en/securities-law/orders-rulings-decisions"
+      ) {
+        return;
+      }
+
+      if (
+        !path.startsWith(
+          "/en/securities-law/orders-rulings-decisions/"
+        )
+      ) {
+        return;
+      }
+    } catch {
+      return;
+    }
+
+    if (!unique.has(link.href)) {
+      /*
+       * Try to recover metadata from the closest
+       * surrounding row/container where available.
+       */
+
+      const row =
+        link.closest("tr");
+
+      const cells = row
+        ? Array.from(row.querySelectorAll("td"))
+        : [];
+
+      unique.set(link.href, {
+        published_date_text:
+          tidy(cells[0]?.innerText),
+
+        title,
+
+        source_url:
+          link.href,
+
+        instrument:
+          tidy(cells[2]?.innerText),
+
+        document_type:
+          tidy(cells[3]?.innerText),
+
+        related_to:
+          tidy(cells[4]?.innerText)
+      });
+    }
   });
 
-  console.log(
-    "Table rows detected:",
-    result.tableRowsFound
-  );
+  return {
+    records:
+      Array.from(unique.values()),
 
-  console.log(
-    "Decision records detected:",
-    result.records.length
-  );
+    tableRowsFound:
+      rows.length,
 
-  return result.records;
+    usedFallback:
+      true
+  };
 }
+
+return {
+  records,
+
+  tableRowsFound:
+    rows.length,
+
+  usedFallback:
+    false
+};
+});
+
+console.log(
+  "Table rows detected:",
+  result.tableRowsFound
+);
+
+console.log(
+  "Decision records detected:",
+  result.records.length
+);
+
+if (result.usedFallback) {
+  console.log(
+    "OSC table rows unavailable — direct-link fallback used."
+  );
+}
+
+return result.records;
 
 
 // ========================================================
