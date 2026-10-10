@@ -1386,36 +1386,89 @@ async function run() {
 
     const completed = [];
 
-// TEMPORARY SAFETY LIMIT:
-// Process only the first 3 decisions during initial production testing.
-const testRecords = records.slice(0, 3);
+// ----------------------------------------------------
+// TEMPORARY SAFETY TEST
+// ----------------------------------------------------
+//
+// Walk through OSC records in date order.
+//
+// Existing ANALYZED records will be skipped by
+// processDecision().
+//
+// Stop after 3 NEW decisions have actually been
+// processed and saved to Supabase.
+//
+
+const TEST_NEW_RECORD_LIMIT = 3;
+
+let newRecordsProcessed = 0;
+let recordsChecked = 0;
 
 console.log(
-  `TEST MODE: Processing ${testRecords.length} of ${records.length} qualifying decisions.`
+  `TEST MODE: Will process a maximum of ${TEST_NEW_RECORD_LIMIT} new decisions.`
 );
 
 for (
   let i = 0;
-  i < testRecords.length;
+  i < records.length;
   i++
 ) {
-     const result =
-  await processDecision(
-    browser,
-    testRecords[i],
-    i + 1,
-    testRecords.length
-  );
+  recordsChecked++;
 
-      completed.push(result);
+  const result =
+    await processDecision(
+      browser,
+      records[i],
+      i + 1,
+      records.length
+    );
 
-      /*
-       * Be respectful to OSC and Groq APIs.
-       */
+  completed.push(result);
 
-      await sleep(500);
-    }
+  /*
+   * Count only records that were actually processed
+   * and successfully saved/upserted.
+   *
+   * Existing ANALYZED records do not count toward
+   * the 3-record test limit.
+   */
 
+  if (
+    result.database_status === "SAVED" &&
+    result.skipped_existing === false
+  ) {
+    newRecordsProcessed++;
+
+    console.log(
+      `NEW RECORD TEST PROGRESS: ${newRecordsProcessed}/${TEST_NEW_RECORD_LIMIT}`
+    );
+  }
+
+  /*
+   * Stop once 3 new decisions have been processed.
+   */
+
+  if (
+    newRecordsProcessed >=
+    TEST_NEW_RECORD_LIMIT
+  ) {
+    console.log(
+      `TEST LIMIT REACHED: ${TEST_NEW_RECORD_LIMIT} new decisions processed.`
+    );
+
+    break;
+  }
+
+  /*
+   * Be respectful to OSC and Groq APIs.
+   */
+
+  await sleep(500);
+}
+
+console.log(
+  `TEST MODE SUMMARY: Checked ${recordsChecked} OSC records to process ${newRecordsProcessed} new decisions.`
+);
     // ----------------------------------------------------
     // FINAL REPORT
     // ----------------------------------------------------
