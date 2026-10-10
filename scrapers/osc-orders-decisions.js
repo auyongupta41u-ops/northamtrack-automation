@@ -1136,18 +1136,26 @@ async function run() {
 
     const completed = [];
 
-    for (
-      let i = 0;
-      i < records.length;
-      i++
-    ) {
-      const result =
-        await processDecision(
-          browser,
-          records[i],
-          i + 1,
-          records.length
-        );
+// TEMPORARY SAFETY LIMIT:
+// Process only the first 3 decisions during initial production testing.
+const testRecords = records.slice(0, 3);
+
+console.log(
+  `TEST MODE: Processing ${testRecords.length} of ${records.length} qualifying decisions.`
+);
+
+for (
+  let i = 0;
+  i < testRecords.length;
+  i++
+) {
+     const result =
+  await processDecision(
+    browser,
+    testRecords[i],
+    i + 1,
+    testRecords.length
+  );
 
       completed.push(result);
 
