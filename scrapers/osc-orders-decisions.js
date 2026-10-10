@@ -59,7 +59,7 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 // Can be overridden in GitHub Secrets/Variables later if desired.
 const GROQ_MODEL =
-  process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+  process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 
 const SUPABASE_TABLE = "regulatory_decisions";
 
