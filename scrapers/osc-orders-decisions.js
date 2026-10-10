@@ -396,7 +396,7 @@ if (result.usedFallback) {
 }
 
 return result.records;
-
+}
 
 // ========================================================
 // COLLECT ALL QUALIFYING OSC RECORDS
