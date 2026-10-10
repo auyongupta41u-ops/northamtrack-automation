@@ -1399,7 +1399,7 @@ async function run() {
 // processed and saved to Supabase.
 //
 
-const TEST_NEW_RECORD_LIMIT = 3;
+const TEST_NEW_RECORD_LIMIT = 25;
 
 let newRecordsProcessed = 0;
 let recordsChecked = 0;
