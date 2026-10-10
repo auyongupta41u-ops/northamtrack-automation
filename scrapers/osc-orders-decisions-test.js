@@ -1,13 +1,15 @@
 /**
  * NORTHAMTRACK
  * OSC Orders, Rulings & Decisions
- * Diagnostic Test
+ * LISTING STRUCTURE DIAGNOSTIC
  *
  * PURPOSE:
- * 1. Test access to OSC Orders, Rulings & Decisions listing
- * 2. Find links to individual decisions
- * 3. Test access to an individual OSC decision
- * 4. Test Headnote extraction
+ * Discover exactly how OSC exposes:
+ * - Date
+ * - Title
+ * - Instrument
+ * - Document Type
+ * - Related To
  *
  * NO Supabase writes
  * NO AI processing
@@ -18,12 +20,9 @@ const puppeteer = require("puppeteer");
 const LISTING_URL =
   "https://www.osc.ca/en/securities-law/orders-rulings-and-decisions";
 
-const SAMPLE_URL =
-  "https://www.osc.ca/en/securities-law/orders-rulings-decisions/blackrock-asset-management-canada-limited-14";
-
 async function runTest() {
   console.log("==============================================");
-  console.log("NORTHAMTRACK — OSC ORDERS & DECISIONS TEST");
+  console.log("NORTHAMTRACK — OSC LISTING STRUCTURE TEST");
   console.log("==============================================");
 
   const browser = await puppeteer.launch({
@@ -50,117 +49,144 @@ async function runTest() {
 
     page.setDefaultNavigationTimeout(60000);
 
-    // --------------------------------------------------
-    // TEST 1 — OSC LISTING PAGE
-    // --------------------------------------------------
+    console.log("\nOpening OSC listing page...");
 
-    console.log("\nTEST 1 — Opening OSC listing page...");
-
-    const listingResponse = await page.goto(LISTING_URL, {
+    const response = await page.goto(LISTING_URL, {
       waitUntil: "domcontentloaded",
       timeout: 60000
     });
 
     console.log(
-      "Listing HTTP status:",
-      listingResponse ? listingResponse.status() : "NO RESPONSE"
+      "HTTP status:",
+      response ? response.status() : "NO RESPONSE"
     );
 
-    console.log("Listing title:", await page.title());
-
-    const listingResults = await page.evaluate(() => {
-      const bodyText = document.body?.innerText || "";
+    const results = await page.evaluate(() => {
+      const tidy = (value) =>
+        value
+          ? value
+              .replace(/\u00a0/g, " ")
+              .replace(/\s+/g, " ")
+              .trim()
+          : null;
 
       const links = Array.from(
-        document.querySelectorAll("a[href]")
-      )
-        .map(a => ({
-          title: (a.innerText || "").trim(),
-          url: a.href
-        }))
-        .filter(item =>
-          item.url.includes(
-            "/securities-law/orders-rulings-decisions/"
-          )
-        );
+        document.querySelectorAll(
+          'a[href*="/securities-law/orders-rulings-decisions/"]'
+        )
+      ).filter((link) => {
+        try {
+          const url = new URL(link.href);
 
-      return {
-        bodyLength: bodyText.length,
-        linksFound: links.length,
-        first10Links: links.slice(0, 10)
-      };
-    });
+          const path =
+            url.pathname.replace(/\/+$/, "");
 
-    console.log("\nLISTING RESULTS");
-    console.log(JSON.stringify(listingResults, null, 2));
+          return (
+            path.startsWith(
+              "/en/securities-law/orders-rulings-decisions/"
+            ) &&
+            path !==
+              "/en/securities-law/orders-rulings-decisions"
+          );
+        } catch {
+          return false;
+        }
+      });
 
-    // --------------------------------------------------
-    // TEST 2 — INDIVIDUAL DECISION
-    // --------------------------------------------------
+      const unique = [];
+      const seen = new Set();
 
-    console.log("\nTEST 2 — Opening sample BlackRock decision...");
+      for (const link of links) {
+        if (seen.has(link.href)) {
+          continue;
+        }
 
-    const decisionResponse = await page.goto(SAMPLE_URL, {
-      waitUntil: "domcontentloaded",
-      timeout: 60000
-    });
+        seen.add(link.href);
 
-    console.log(
-      "Decision HTTP status:",
-      decisionResponse ? decisionResponse.status() : "NO RESPONSE"
-    );
+        /*
+         * Walk UP the DOM from the decision link.
+         * This lets us see which ancestor contains
+         * Date / Instrument / Document Type / Related To.
+         */
 
-    console.log("Decision title:", await page.title());
+        const ancestors = [];
 
-    // --------------------------------------------------
-    // TEST 3 — HEADNOTE
-    // --------------------------------------------------
+        let node = link;
 
-    console.log("\nTEST 3 — Looking for Headnote...");
+        for (
+          let level = 0;
+          level < 8 && node;
+          level++
+        ) {
+          ancestors.push({
+            level,
 
-    const decisionResults = await page.evaluate(() => {
-      const bodyText = document.body?.innerText || "";
+            tag:
+              node.tagName || null,
 
-      const headnoteIndex = bodyText.search(/\bHeadnote\b/i);
+            className:
+              typeof node.className === "string"
+                ? node.className
+                : null,
 
-      if (headnoteIndex === -1) {
-        return {
-          headnoteFound: false,
-          pageTextLength: bodyText.length,
-          first1000Characters: bodyText.slice(0, 1000)
-        };
+            id:
+              node.id || null,
+
+            text:
+              tidy(node.innerText),
+
+            html:
+              node.outerHTML
+                ? node.outerHTML.slice(0, 3000)
+                : null
+          });
+
+          node = node.parentElement;
+        }
+
+        unique.push({
+          title:
+            tidy(link.innerText),
+
+          url:
+            link.href,
+
+          ancestors
+        });
+
+        /*
+         * We only need the first 3 decisions.
+         */
+        if (unique.length >= 3) {
+          break;
+        }
       }
 
-      const afterHeadnote = bodyText.substring(
-        headnoteIndex + "Headnote".length
-      );
-
-      const possibleEnd = afterHeadnote.search(
-        /\n\s*(?:Applicable Legislative Provisions|Applicable Instruments|Statutes|Rules|Decision|Order)\s*\n/i
-      );
-
-      const headnote =
-        possibleEnd >= 0
-          ? afterHeadnote.substring(0, possibleEnd)
-          : afterHeadnote.substring(0, 5000);
-
       return {
-        headnoteFound: true,
-        headnoteLength: headnote.trim().length,
-        headnote: headnote.trim()
+        decisionLinksFound:
+          links.length,
+
+        samples:
+          unique
       };
     });
 
-    console.log("\nHEADNOTE RESULTS");
-    console.log(JSON.stringify(decisionResults, null, 2));
+    console.log("\n==============================================");
+    console.log("OSC LISTING STRUCTURE RESULTS");
+    console.log("==============================================");
+
+    console.log(
+      JSON.stringify(results, null, 2)
+    );
 
     console.log("\n==============================================");
-    console.log("OSC DIAGNOSTIC TEST COMPLETED");
+    console.log("DIAGNOSTIC COMPLETED");
     console.log("==============================================");
 
   } catch (error) {
     console.error("\nOSC TEST FAILED");
     console.error(error);
+
     process.exitCode = 1;
 
   } finally {
