@@ -259,14 +259,9 @@ if (records.length === 0) {
       return;
     }
 
-    /*
-     * Exclude navigation/anchor links and retain only
-     * actual individual OSC decision pages.
-     */
-
+    // Keep only actual individual OSC decision pages.
     try {
       const url = new URL(link.href);
-
       const path = url.pathname.replace(/\/+$/, "");
 
       if (
@@ -287,75 +282,70 @@ if (records.length === 0) {
       return;
     }
 
-    if (!unique.has(link.href)) {
-      /*
-       * Try to recover metadata from the closest
-       * surrounding row/container where available.
-       */
+    if (unique.has(link.href)) {
+      return;
+    }
 
-      const row =
-        link.closest("tr");
+    /*
+     * OSC renders the listing as a DIV-based table:
+     *
+     * .table-row__content
+     *   column-2 = Date
+     *   column-4 = Title
+     *   column-2 = Instrument
+     *   column-2 = Document Type
+     *   column-2 = Related To
+     */
 
-      const cells = row
-        ? Array.from(row.querySelectorAll("td"))
-        : [];
+    const container =
+      link.closest(".table-row__content");
 
-     /*
- * Recover metadata from the closest surrounding
- * OSC result container when normal table rows
- * are not available.
- */
+    if (!container) {
+      return;
+    }
 
-const container =
-  link.closest("tr") ||
-  link.closest("article") ||
-  link.closest(".views-row") ||
-  link.closest(".search-result") ||
-  link.parentElement?.parentElement ||
-  link.parentElement;
+    const metadataColumns = Array.from(
+      container.querySelectorAll(":scope > .column-2")
+    );
 
-const containerText =
-  tidy(container?.innerText) || "";
+    const time =
+      container.querySelector("time");
 
-/*
- * OSC dates normally appear in formats such as:
- * October 8, 2026
- * Oct 8, 2026
- * 2026-10-08
- */
+    const publishedDate =
+      tidy(time?.innerText) ||
+      tidy(
+        time?.getAttribute("datetime")
+      ) ||
+      tidy(metadataColumns[0]?.innerText);
 
-const dateMatch =
-  containerText.match(
-    /\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+\d{1,2},\s+\d{4}\b/i
-  ) ||
-  containerText.match(
-    /\b\d{4}-\d{2}-\d{2}\b/
-  );
+    const instrument =
+      tidy(metadataColumns[1]?.innerText);
 
-const publishedDate =
-  tidy(cells[0]?.innerText) ||
-  (dateMatch ? tidy(dateMatch[0]) : null);
+    const documentType =
+      tidy(metadataColumns[2]?.innerText);
 
-unique.set(link.href, {
-  published_date_text:
-    publishedDate,
+    const relatedTo =
+      tidy(metadataColumns[3]?.innerText);
 
-  title,
+    unique.set(link.href, {
+      published_date_text:
+        publishedDate,
 
-  source_url:
-    link.href,
+      title,
 
-  instrument:
-    tidy(cells[2]?.innerText),
+      source_url:
+        link.href,
 
-  document_type:
-    tidy(cells[3]?.innerText),
+      instrument,
 
-  related_to:
-    tidy(cells[4]?.innerText)
-});
-   }
+      document_type:
+        documentType,
+
+      related_to:
+        relatedTo
+    });
   });
+
   return {
     records:
       Array.from(unique.values()),
@@ -367,7 +357,6 @@ unique.set(link.href, {
       true
   };
 }
-
 return {
   records,
 
