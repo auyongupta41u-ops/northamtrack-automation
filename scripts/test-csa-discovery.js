@@ -121,7 +121,56 @@ if (url.includes("robots.txt")) {
   console.log(text);
   console.log("===== END CSA ROBOTS.TXT =====\n");
 }
+// Inspect the FCAA page around the latest CSA release.
+if (url.includes("fcaa.gov.sk.ca/whats-new/news-releases")) {
+  console.log("\n===== FCAA CSA RELEASE CONTENT TEST =====");
 
+  const searchTerms = [
+    "new-csa-research-identifies",
+    "anti-fraud",
+    "November 17",
+    "Nov 17"
+  ];
+
+  let matchIndex = -1;
+
+  for (const term of searchTerms) {
+    matchIndex = text.toLowerCase().indexOf(term.toLowerCase());
+
+    if (matchIndex !== -1) {
+      console.log(`Matched FCAA content using: ${term}`);
+      break;
+    }
+  }
+
+  if (matchIndex !== -1) {
+    const start = Math.max(0, matchIndex - 1500);
+    const end = Math.min(text.length, matchIndex + 5000);
+
+    const surroundingHtml = text.slice(start, end);
+
+    console.log("\n--- RAW HTML AROUND RELEASE ---");
+    console.log(surroundingHtml);
+
+    const readableText = surroundingHtml
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    console.log("\n--- READABLE TEXT AROUND RELEASE ---");
+    console.log(readableText);
+  } else {
+    console.log("November 17 CSA release was not found in the FCAA HTML.");
+  }
+
+  console.log("\n===== END FCAA CSA RELEASE CONTENT TEST =====\n");
+}
 return {
       ok: response.ok,
 
