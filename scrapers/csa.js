@@ -160,6 +160,15 @@ function determineMutualFundRelevance(
 
 /**
  * Collect unique CSA news links from the official listing page.
+ *
+ * Defensive version that tolerates:
+ * - relative URLs
+ * - absolute URLs
+ * - trailing-slash changes
+ * - minor CSA HTML changes
+ *
+ * It also provides detailed diagnostics if CSA changes
+ * its website again in the future.
  */
 async function collectReleaseLinks(page) {
   console.log(
@@ -167,91 +176,416 @@ async function collectReleaseLinks(page) {
   );
 
   await page.goto(NEWS_URL, {
-    waitUntil: "domcontentloaded",
+    waitUntil: "networkidle2",
     timeout: 90000
   });
 
+  /*
+   * Allow any client-side rendering to complete.
+   */
   await new Promise((resolve) =>
-    setTimeout(resolve, 5000)
+    setTimeout(resolve, 3000)
   );
 
+  /*
+   * Diagnostic information.
+   *
+   * If the scraper ever stops working again, these lines
+   * will tell us whether GitHub/Puppeteer actually received
+   * the CSA page and how many links were rendered.
+   */
+  const pageInfo = await page.evaluate(() => ({
+    title: document.title,
+    url: window.location.href,
+    totalLinks:
+      document.querySelectorAll("a[href]").length,
+    bodyLength:
+      document.body?.innerText?.length || 0
+  }));
+
+  console.log(
+    `CSA page title: ${pageInfo.title}`
+  );
+
+  console.log(
+    `CSA current URL: ${pageInfo.url}`
+  );
+
+  console.log(
+    `Total links detected: ${pageInfo.totalLinks}`
+  );
+
+  console.log(
+    `Rendered body length: ${pageInfo.bodyLength} characters`
+  );
+
+  /*
+   * Wait specifically for a link that looks like an
+   * individual CSA news release.
+   *
+   * Failure here is not fatal because we still perform
+   * the broader fallback extraction below.
+   */
+  try {
+    await page.waitForFunction(
+      () =>
+        Array.from(
+          document.querySelectorAll("a[href]")
+        ).some((link) => {
+          try {
+            const url = new URL(
+              link.getAttribute("href"),
+              window.location.origin
+            );
+
+            const hostname =
+              url.hostname
+                .toLowerCase()
+                .replace(/^www\./, "");
+
+            const path =
+              url.pathname
+                .replace(/\/+/g, "/")
+                .replace(/\/$/, "");
+
+            return (
+              hostname ===
+                "securities-administrators.ca" &&
+              path.startsWith("/news/") &&
+              path !== "/news"
+            );
+          } catch (error) {
+            return false;
+          }
+        }),
+      {
+        timeout: 20000
+      }
+    );
+
+    console.log(
+      "CSA news article links detected on the page."
+    );
+  } catch (error) {
+    console.warn(
+      "No /news/ article link appeared during the wait period. Running fallback link discovery."
+    );
+  }
+
+  /*
+   * Extract candidate news releases.
+   */
   const releases = await page.evaluate(() => {
     const seenUrls = new Set();
+    const results = [];
 
-    const listingUrl =
-      "https://www.securities-administrators.ca/news";
+    function normalizeText(value = "") {
+      return String(value)
+        .replace(/\u00a0/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
 
-    return Array.from(
-      document.querySelectorAll("a[href]")
-    )
-      .map((link) => {
-        const container =
-          link.closest("article") ||
-          link.closest("li") ||
-          link.closest("div");
+    function extractDate(container) {
+      if (!container) {
+        return "";
+      }
 
-        const dateElement =
-          container?.querySelector("time") ||
-          container?.querySelector(".date") ||
+      const dateElement =
+        container.querySelector("time") ||
+        container.querySelector("[datetime]") ||
+        container.querySelector(".date") ||
+        container.querySelector(
+          '[class*="date"]'
+        );
+
+      if (!dateElement) {
+        return "";
+      }
+
+      return (
+        dateElement.getAttribute("datetime") ||
+        dateElement.getAttribute("content") ||
+        normalizeText(
+          dateElement.textContent
+        )
+      );
+    }
+
+    const links =
+      document.querySelectorAll("a[href]");
+
+    for (const link of links) {
+      const rawHref =
+        link.getAttribute("href");
+
+      if (!rawHref) {
+        continue;
+      }
+
+      let parsedUrl;
+
+      try {
+        /*
+         * This handles both:
+         *
+         * /news/example/
+         *
+         * and:
+         *
+         * https://www.securities-administrators.ca/news/example/
+         */
+        parsedUrl = new URL(
+          rawHref,
+          window.location.origin
+        );
+      } catch (error) {
+        continue;
+      }
+
+      /*
+       * Normalize www/non-www versions of the CSA domain.
+       */
+      const hostname =
+        parsedUrl.hostname
+          .toLowerCase()
+          .replace(/^www\./, "");
+
+      if (
+        hostname !==
+        "securities-administrators.ca"
+      ) {
+        continue;
+      }
+
+      /*
+       * Normalize the pathname.
+       */
+      const pathname =
+        parsedUrl.pathname
+          .replace(/\/+/g, "/")
+          .replace(/\/$/, "");
+
+      /*
+       * Individual CSA releases should live beneath:
+       *
+       * /news/...
+       *
+       * but the archive itself (/news) should not be treated
+       * as an article.
+       */
+      if (
+        !pathname.startsWith("/news/") ||
+        pathname === "/news"
+      ) {
+        continue;
+      }
+
+      /*
+       * Ignore common archive/navigation URLs.
+       */
+      const excludedPaths = [
+        "/news/page/",
+        "/news/category/",
+        "/news/tag/",
+        "/news/author/",
+        "/news/feed"
+      ];
+
+      if (
+        excludedPaths.some(
+          (path) =>
+            pathname.startsWith(path)
+        )
+      ) {
+        continue;
+      }
+
+      /*
+       * Locate the most likely parent card/container.
+       */
+      const container =
+        link.closest("article") ||
+        link.closest(
+          '[class*="news"]'
+        ) ||
+        link.closest(
+          '[class*="post"]'
+        ) ||
+        link.closest(
+          '[class*="card"]'
+        ) ||
+        link.closest("li") ||
+        link.closest("div");
+
+      /*
+       * First try the anchor text itself.
+       */
+      let title =
+        normalizeText(
+          link.textContent
+        );
+
+      /*
+       * If the anchor contains only an icon or short text,
+       * try the nearest heading.
+       */
+      if (
+        !title ||
+        title.length < 15
+      ) {
+        const heading =
           container?.querySelector(
-            '[class*="date"]'
+            "h1, h2, h3, h4"
           );
 
-        return {
-          title: link.textContent
-            .replace(/\s+/g, " ")
-            .trim(),
-
-          source_url: link.href,
-
-          listing_date:
-            dateElement?.getAttribute(
-              "datetime"
-            ) ||
-            dateElement?.textContent
-              ?.replace(/\s+/g, " ")
-              .trim() ||
-            ""
-        };
-      })
-      .filter((release) => {
-        const normalizedUrl =
-          release.source_url
-            .split("#")[0]
-            .replace(/\/$/, "");
-
-        const isArticle =
-          release.title &&
-          release.title.length >= 15 &&
-          normalizedUrl.startsWith(
-            `${listingUrl}/`
-          ) &&
-          normalizedUrl !== listingUrl &&
-          !release.source_url.includes("#") &&
-          release.title.toLowerCase() !==
-            "skip to content";
+        const headingText =
+          normalizeText(
+            heading?.textContent
+          );
 
         if (
-          !isArticle ||
-          seenUrls.has(normalizedUrl)
+          headingText.length >= 15
         ) {
-          return false;
+          title =
+            headingText;
         }
+      }
 
-        release.source_url =
-          `${normalizedUrl}/`;
+      /*
+       * A genuine release should have a meaningful title.
+       */
+      if (
+        !title ||
+        title.length < 15
+      ) {
+        continue;
+      }
 
-        seenUrls.add(normalizedUrl);
+      const lowerTitle =
+        title.toLowerCase();
 
-        return true;
+      /*
+       * Ignore generic navigation labels.
+       */
+      const excludedTitles = [
+        "skip to content",
+        "read more",
+        "learn more",
+        "view more",
+        "load more",
+        "next page",
+        "previous page"
+      ];
+
+      if (
+        excludedTitles.includes(
+          lowerTitle
+        )
+      ) {
+        continue;
+      }
+
+      /*
+       * Build one canonical URL.
+       */
+      const normalizedUrl =
+        `${parsedUrl.origin}${pathname}`;
+
+      /*
+       * Prevent duplicate releases.
+       */
+      if (
+        seenUrls.has(
+          normalizedUrl
+        )
+      ) {
+        continue;
+      }
+
+      seenUrls.add(
+        normalizedUrl
+      );
+
+      results.push({
+        title,
+
+        source_url:
+          `${normalizedUrl}/`,
+
+        listing_date:
+          extractDate(
+            container
+          )
       });
+    }
+
+    return results;
   });
 
   console.log(
     `Found ${releases.length} possible CSA news articles.`
   );
 
-  return releases.slice(0, MAX_ARTICLES);
+  /*
+   * If discovery still fails, print examples of what
+   * Puppeteer actually received from CSA.
+   *
+   * This makes future debugging much easier.
+   */
+  if (
+    releases.length === 0
+  ) {
+    const diagnosticLinks =
+      await page.evaluate(() =>
+        Array.from(
+          document.querySelectorAll(
+            "a[href]"
+          )
+        )
+          .slice(0, 25)
+          .map((link) => ({
+            text:
+              String(
+                link.textContent || ""
+              )
+                .replace(
+                  /\s+/g,
+                  " "
+                )
+                .trim()
+                .slice(
+                  0,
+                  100
+                ),
+
+            href:
+              link.getAttribute(
+                "href"
+              ) || ""
+          }))
+      );
+
+    console.log(
+      "Sample links found on CSA page:"
+    );
+
+    diagnosticLinks.forEach(
+      (link, index) => {
+        console.log(
+          `${index + 1}. ${link.text} -> ${link.href}`
+        );
+      }
+    );
+  }
+
+  /*
+   * Preserve the existing MAX_ARTICLES limit.
+   */
+  return releases.slice(
+    0,
+    MAX_ARTICLES
+  );
 }
 
 /**
@@ -265,20 +599,31 @@ async function extractArticle(
     `\nOpening article: ${release.title}`
   );
 
-  await articlePage.goto(release.source_url, {
-    waitUntil: "domcontentloaded",
-    timeout: 90000
-  });
+  await articlePage.goto(
+    release.source_url,
+    {
+      waitUntil:
+        "domcontentloaded",
 
-  await new Promise((resolve) =>
-    setTimeout(resolve, 2000)
+      timeout:
+        90000
+    }
+  );
+
+  await new Promise(
+    (resolve) =>
+      setTimeout(
+        resolve,
+        2000
+      )
   );
 
   try {
     await articlePage.waitForSelector(
       "h1, article, main",
       {
-        timeout: 20000
+        timeout:
+          20000
       }
     );
   } catch (error) {
@@ -286,230 +631,324 @@ async function extractArticle(
       "Main article selector was not detected. Attempting fallback extraction."
     );
   }
-  const extracted = await articlePage.evaluate(() => {
-    function normalize(value = "") {
-      return String(value)
-        .replace(/\u00a0/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-    }
 
-    const title =
-      normalize(
-        document.querySelector("h1")
-          ?.textContent
-      ) ||
-      normalize(document.title);
-
-    /*
-     * Try several common date locations.
-     */
-    const dateElement =
-      document.querySelector(
-        'meta[property="article:published_time"]'
-      ) ||
-      document.querySelector(
-        'meta[name="date"]'
-      ) ||
-      document.querySelector(
-        'meta[name="publication_date"]'
-      ) ||
-      document.querySelector("time") ||
-      document.querySelector(".date") ||
-      document.querySelector(
-        '[class*="publish-date"]'
-      ) ||
-      document.querySelector(
-        '[class*="publication-date"]'
-      ) ||
-      document.querySelector(
-        '[class*="date"]'
-      );
-
-    let publishedDate = "";
-
-    if (dateElement) {
-      publishedDate =
-        dateElement.getAttribute("content") ||
-        dateElement.getAttribute("datetime") ||
-        normalize(dateElement.textContent);
-    }
-
-    /*
-     * Try to obtain a date from JSON-LD.
-     */
-    if (!publishedDate) {
-      const jsonLdScripts =
-        Array.from(
-          document.querySelectorAll(
-            'script[type="application/ld+json"]'
+  const extracted =
+    await articlePage.evaluate(
+      () => {
+        function normalize(
+          value = ""
+        ) {
+          return String(
+            value
           )
-        );
+            .replace(
+              /\u00a0/g,
+              " "
+            )
+            .replace(
+              /\s+/g,
+              " "
+            )
+            .trim();
+        }
 
-      for (const script of jsonLdScripts) {
-        try {
-          const parsed = JSON.parse(
-            script.textContent
+        const title =
+          normalize(
+            document.querySelector(
+              "h1"
+            )?.textContent
+          ) ||
+          normalize(
+            document.title
           );
 
-          const entries =
-            Array.isArray(parsed)
-              ? parsed
-              : [parsed];
+        /*
+         * Try several common date locations.
+         */
+        const dateElement =
+          document.querySelector(
+            'meta[property="article:published_time"]'
+          ) ||
+          document.querySelector(
+            'meta[name="date"]'
+          ) ||
+          document.querySelector(
+            'meta[name="publication_date"]'
+          ) ||
+          document.querySelector(
+            "time"
+          ) ||
+          document.querySelector(
+            ".date"
+          ) ||
+          document.querySelector(
+            '[class*="publish-date"]'
+          ) ||
+          document.querySelector(
+            '[class*="publication-date"]'
+          ) ||
+          document.querySelector(
+            '[class*="date"]'
+          );
 
-          for (const entry of entries) {
-            const candidate =
-              entry?.datePublished ||
-              entry?.dateCreated ||
-              entry?.dateModified;
+        let publishedDate =
+          "";
 
-            if (candidate) {
-              publishedDate = candidate;
-              break;
+        if (
+          dateElement
+        ) {
+          publishedDate =
+            dateElement.getAttribute(
+              "content"
+            ) ||
+            dateElement.getAttribute(
+              "datetime"
+            ) ||
+            normalize(
+              dateElement.textContent
+            );
+        }
+
+        /*
+         * Try to obtain a date from JSON-LD.
+         */
+        if (
+          !publishedDate
+        ) {
+          const jsonLdScripts =
+            Array.from(
+              document.querySelectorAll(
+                'script[type="application/ld+json"]'
+              )
+            );
+
+          for (
+            const script
+            of jsonLdScripts
+          ) {
+            try {
+              const parsed =
+                JSON.parse(
+                  script.textContent
+                );
+
+              const entries =
+                Array.isArray(
+                  parsed
+                )
+                  ? parsed
+                  : [parsed];
+
+              for (
+                const entry
+                of entries
+              ) {
+                const candidate =
+                  entry?.datePublished ||
+                  entry?.dateCreated ||
+                  entry?.dateModified;
+
+                if (
+                  candidate
+                ) {
+                  publishedDate =
+                    candidate;
+
+                  break;
+                }
+              }
+
+              if (
+                publishedDate
+              ) {
+                break;
+              }
+            } catch (
+              error
+            ) {
+              // Ignore invalid JSON-LD
             }
           }
-
-          if (publishedDate) {
-            break;
-          }
-        } catch (error) {
-          // Ignore invalid JSON-LD
         }
-      }
-    }
 
-    /*
-     * Remove unnecessary page elements.
-     */
-    const removableSelectors = [
-      "script",
-      "style",
-      "nav",
-      "footer",
-      "header",
-      "aside",
-      "form",
-      "button",
-      ".breadcrumb",
-      ".breadcrumbs",
-      ".social-share",
-      ".share",
-      ".related-content",
-      ".navigation",
-      ".menu",
-      ".search-form"
-    ];
+        /*
+         * Remove unnecessary page elements.
+         */
+        const removableSelectors = [
+          "script",
+          "style",
+          "nav",
+          "footer",
+          "header",
+          "aside",
+          "form",
+          "button",
+          ".breadcrumb",
+          ".breadcrumbs",
+          ".social-share",
+          ".share",
+          ".related-content",
+          ".navigation",
+          ".menu",
+          ".search-form"
+        ];
 
-    document
-      .querySelectorAll(
-        removableSelectors.join(",")
-      )
-      .forEach((element) => {
-        element.remove();
-      });
-
-    /*
-     * Try multiple article containers.
-     */
-    const selectors = [
-      "article",
-      "main article",
-      ".entry-content",
-      ".post-content",
-      ".news-content",
-      ".article-content",
-      ".page-content",
-      ".content-body",
-      ".rich-text",
-      ".main-content",
-      "main"
-    ];
-
-    const candidateTexts = [];
-
-    for (const selector of selectors) {
-      document
-        .querySelectorAll(selector)
-        .forEach((element) => {
-          const text = normalize(
-            element.innerText ||
-            element.textContent
+        document
+          .querySelectorAll(
+            removableSelectors.join(
+              ","
+            )
+          )
+          .forEach(
+            (element) => {
+              element.remove();
+            }
           );
 
-          if (text.length >= 200) {
-            candidateTexts.push(text);
-          }
-        });
-    }
+        /*
+         * Try multiple article containers.
+         */
+        const selectors = [
+          "article",
+          "main article",
+          ".entry-content",
+          ".post-content",
+          ".news-content",
+          ".article-content",
+          ".page-content",
+          ".content-body",
+          ".rich-text",
+          ".main-content",
+          "main"
+        ];
 
-    /*
-     * Paragraph fallback.
-     */
-    const paragraphText =
-      Array.from(
-        document.querySelectorAll("p")
-      )
-        .map((paragraph) =>
-          normalize(paragraph.textContent)
-        )
-        .filter(
-          (paragraph) =>
-            paragraph.length >= 30
-        )
-        .join(" ");
+        const candidateTexts =
+          [];
 
-    if (paragraphText.length >= 200) {
-      candidateTexts.push(paragraphText);
-    }
+        for (
+          const selector
+          of selectors
+        ) {
+          document
+            .querySelectorAll(
+              selector
+            )
+            .forEach(
+              (element) => {
+                const text =
+                  normalize(
+                    element.innerText ||
+                    element.textContent
+                  );
 
-    candidateTexts.sort(
-      (a, b) => b.length - a.length
+                if (
+                  text.length >=
+                  200
+                ) {
+                  candidateTexts.push(
+                    text
+                  );
+                }
+              }
+            );
+        }
+
+        /*
+         * Paragraph fallback.
+         */
+        const paragraphText =
+          Array.from(
+            document.querySelectorAll(
+              "p"
+            )
+          )
+            .map(
+              (paragraph) =>
+                normalize(
+                  paragraph.textContent
+                )
+            )
+            .filter(
+              (paragraph) =>
+                paragraph.length >=
+                30
+            )
+            .join(" ");
+
+        if (
+          paragraphText.length >=
+          200
+        ) {
+          candidateTexts.push(
+            paragraphText
+          );
+        }
+
+        candidateTexts.sort(
+          (a, b) =>
+            b.length -
+            a.length
+        );
+
+        const fullText =
+          candidateTexts[0] ||
+          "";
+
+        return {
+          title,
+
+          published_date:
+            publishedDate,
+
+          full_text:
+            fullText
+        };
+      }
     );
 
-    const fullText =
-      candidateTexts[0] || "";
-
-    
-    return {
-      title,
-      published_date: publishedDate,
-      full_text: fullText
-    };
-  });
-
   const title =
-    cleanText(extracted.title) ||
+    cleanText(
+      extracted.title
+    ) ||
     release.title;
 
   const fullText =
-    cleanText(extracted.full_text);
+    cleanText(
+      extracted.full_text
+    );
 
- const articlePublishedDate =
-  convertToISODate(
-    extracted.published_date
-  );
+  const articlePublishedDate =
+    convertToISODate(
+      extracted.published_date
+    );
 
-const listingPublishedDate =
-  convertToISODate(
-    release.listing_date
-  );
+  const listingPublishedDate =
+    convertToISODate(
+      release.listing_date
+    );
 
-const publishedDate =
-  articlePublishedDate ||
-  listingPublishedDate ||
-  new Date().toISOString();
+  const publishedDate =
+    articlePublishedDate ||
+    listingPublishedDate ||
+    new Date().toISOString();
 
-if (!articlePublishedDate && listingPublishedDate) {
-  console.log(
-    "Using the date extracted from the CSA news listing."
-  );
-}
+  if (
+    !articlePublishedDate &&
+    listingPublishedDate
+  ) {
+    console.log(
+      "Using the date extracted from the CSA news listing."
+    );
+  }
 
-if (!articlePublishedDate && !listingPublishedDate) {
-  console.warn(
-    "No valid publication date was found. Using the scraper run date."
-  );
-}
+  if (
+    !articlePublishedDate &&
+    !listingPublishedDate
+  ) {
+    console.warn(
+      "No valid publication date was found. Using the scraper run date."
+    );
+  }
 
   console.log(
     `Extracted ${fullText.length} characters.`
@@ -517,17 +956,25 @@ if (!articlePublishedDate && !listingPublishedDate) {
 
   console.log(
     `Publication date: ${
-      publishedDate || "Not found"
+      publishedDate ||
+      "Not found"
     }`
   );
 
   return {
     title,
-    source_url: release.source_url,
-    published_date: publishedDate,
-    full_text: fullText
+
+    source_url:
+      release.source_url,
+
+    published_date:
+      publishedDate,
+
+    full_text:
+      fullText
   };
 }
+
 /**
  * Main CSA scraper.
  */
@@ -539,22 +986,27 @@ async function scrapeCSA() {
       "Starting the CSA scraper..."
     );
 
-    browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-blink-features=AutomationControlled"
-      ]
-    });
+    browser =
+      await puppeteer.launch({
+        headless: true,
+
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-blink-features=AutomationControlled"
+        ]
+      });
 
     const listingPage =
       await browser.newPage();
 
     await listingPage.setViewport({
-      width: 1366,
-      height: 768
+      width:
+        1366,
+
+      height:
+        768
     });
 
     await listingPage.setUserAgent(
@@ -573,7 +1025,10 @@ async function scrapeCSA() {
         listingPage
       );
 
-    if (releases.length === 0) {
+    if (
+      releases.length ===
+      0
+    ) {
       throw new Error(
         "No CSA news links were found."
       );
@@ -583,8 +1038,11 @@ async function scrapeCSA() {
       await browser.newPage();
 
     await articlePage.setViewport({
-      width: 1366,
-      height: 768
+      width:
+        1366,
+
+      height:
+        768
     });
 
     await articlePage.setUserAgent(
@@ -598,19 +1056,24 @@ async function scrapeCSA() {
         "en-CA,en-US;q=0.9,en;q=0.8"
     });
 
-    const items = [];
+    const items =
+      [];
 
     for (
       let index = 0;
-      index < releases.length;
+      index <
+      releases.length;
       index++
     ) {
-      const release = releases[index];
+      const release =
+        releases[index];
 
       console.log(
         `\nProcessing CSA article ${
           index + 1
-        } of ${releases.length}`
+        } of ${
+          releases.length
+        }`
       );
 
       try {
@@ -643,10 +1106,15 @@ async function scrapeCSA() {
 
         const enhanced =
           await generateEnhancedSummary({
-            title: article.title,
+            title:
+              article.title,
+
             description:
               summarizationText,
-            regulator: "CSA",
+
+            regulator:
+              "CSA",
+
             category
           });
 
@@ -655,7 +1123,8 @@ async function scrapeCSA() {
           `CSA news release concerning ${article.title}. Please review the official release for complete information.`;
 
         items.push({
-          title: article.title,
+          title:
+            article.title,
 
           summary:
             enhanced.summary,
@@ -669,7 +1138,8 @@ async function scrapeCSA() {
           published_date:
             article.published_date,
 
-          regulator: "CSA",
+          regulator:
+            "CSA",
 
           regulator_name:
             "Canadian Securities Administrators",
@@ -708,13 +1178,19 @@ async function scrapeCSA() {
         console.log(
           `Prepared: ${article.title}`
         );
-      } catch (articleError) {
+      } catch (
+        articleError
+      ) {
         console.error(
           `Failed to process "${release.title}": ${articleError.message}`
         );
       }
     }
-    if (items.length === 0) {
+
+    if (
+      items.length ===
+      0
+    ) {
       throw new Error(
         "No CSA articles were successfully prepared."
       );
@@ -725,7 +1201,9 @@ async function scrapeCSA() {
     );
 
     const result =
-      await upsertRegulatoryUpdates(items);
+      await upsertRegulatoryUpdates(
+        items
+      );
 
     console.log(
       "\nCSA Supabase result:"
@@ -743,7 +1221,10 @@ async function scrapeCSA() {
       `Failed: ${result.failed}`
     );
 
-    if (result.failed > 0) {
+    if (
+      result.failed >
+      0
+    ) {
       throw new Error(
         `${result.failed} CSA records failed to save.`
       );
@@ -752,25 +1233,24 @@ async function scrapeCSA() {
     console.log(
       "\nCSA full-text scraping, summarization and Supabase update completed successfully."
     );
-
   } catch (error) {
-
     console.error(
       "\nCSA scraper failed."
     );
 
     console.error(
-      error.stack || error.message
+      error.stack ||
+      error.message
     );
 
-    process.exitCode = 1;
-
+    process.exitCode =
+      1;
   } finally {
-
-    if (browser) {
+    if (
+      browser
+    ) {
       await browser.close();
     }
-
   }
 }
 
