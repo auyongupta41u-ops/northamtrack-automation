@@ -15,6 +15,10 @@ const TARGETS = [
     "https://www.securities-administrators.ca/news/page/2/"
   ],
   [
+  "CSA individual news article",
+  "https://www.securities-administrators.ca/news/csa-and-ciro-to-delay-implementation-of-final-amendments-to-access-fee-and-tick-size-rules/"
+  ],
+  [
     "CSA news feed candidate",
     "https://www.securities-administrators.ca/news/feed/"
   ],
