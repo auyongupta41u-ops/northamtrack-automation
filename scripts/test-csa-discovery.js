@@ -19,6 +19,10 @@ const TARGETS = [
   "https://www.securities-administrators.ca/news/csa-and-ciro-to-delay-implementation-of-final-amendments-to-access-fee-and-tick-size-rules/"
   ],
   [
+  "FCAA CSA News Releases and Alerts",
+  "https://fcaa.gov.sk.ca/whats-new/news-releases"
+  ],
+  [
     "CSA news feed candidate",
     "https://www.securities-administrators.ca/news/feed/"
   ],
