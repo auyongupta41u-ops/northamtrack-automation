@@ -1,0 +1,27 @@
+name: CSA Discovery Diagnostic
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-csa-discovery:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run CSA discovery diagnostic
+        run: node scripts/test-csa-discovery.js
+
+      - name: Upload CSA discovery diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: csa-discovery-diagnostic
+          path: output/csa-discovery-diagnostic.json
+          retention-days: 7
