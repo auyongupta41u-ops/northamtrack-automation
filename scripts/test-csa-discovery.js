@@ -104,9 +104,17 @@ async function fetchWithTimeout(
       }
     });
 
-    const text = await response.text();
+   const text = await response.text();
 
-    return {
+// Print robots.txt because it may reveal an alternative
+// official CSA sitemap or crawl endpoint.
+if (url.includes("robots.txt")) {
+  console.log("\n===== CSA ROBOTS.TXT CONTENT =====");
+  console.log(text);
+  console.log("===== END CSA ROBOTS.TXT =====\n");
+}
+
+return {
       ok: response.ok,
 
       status: response.status,
