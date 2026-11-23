@@ -1020,19 +1020,47 @@ async function scrapeCSA() {
         "en-CA,en-US;q=0.9,en;q=0.8"
     });
 
-    const releases =
-      await collectReleaseLinks(
-        listingPage
-      );
+   let releases = [];
 
-    if (
-      releases.length ===
-      0
-    ) {
-      throw new Error(
-        "No CSA news links were found."
-      );
-    }
+try {
+  releases = await collectReleaseLinks(
+    listingPage
+  );
+} catch (discoveryError) {
+  console.warn(
+    `CSA direct discovery encountered an error: ${discoveryError.message}`
+  );
+}
+
+/*
+ * If the CSA website is temporarily protected by Cloudflare
+ * or otherwise unavailable, do not fail the entire scraper.
+ *
+ * Existing CSA records remain safely stored in Supabase and
+ * the scraper can try again on the next scheduled run.
+ */
+if (
+  !releases ||
+  releases.length === 0
+) {
+  console.warn(
+    "\n⚠️ No CSA releases could be discovered during this run."
+  );
+
+  console.warn(
+    "The CSA website may be temporarily protected by Cloudflare."
+  );
+
+  console.warn(
+    "Existing CSA records in Supabase will NOT be changed or deleted."
+  );
+
+  console.warn(
+    "CSA scraper will exit normally and retry on the next run."
+  );
+
+  return;
+}
 
     const articlePage =
       await browser.newPage();
